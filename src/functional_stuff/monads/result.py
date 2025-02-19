@@ -1,12 +1,24 @@
 __all__ = ("Error", "Ok", "Result", "to_result")
 
 from abc import abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from functools import wraps
-from typing import TYPE_CHECKING, Any, Literal, NoReturn, ParamSpec, Self, TypeGuard, TypeVar, final, overload
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Literal,
+    NoReturn,
+    ParamSpec,
+    Self,
+    TypeGuard,
+    TypeVar,
+    cast,
+    final,
+    overload,
+)
 
-from functional_stuff.monads.base import AbstractMonad, M, T, U
+from functional_stuff.monads.base import AbstractDeferrableMonad, AbstractDeferredMonad, AbstractMonad, M, T, U, V, W
 
 if TYPE_CHECKING:
     from functional_stuff.monads.maybe import Maybe, Nothing, Some
@@ -14,10 +26,11 @@ if TYPE_CHECKING:
 E = TypeVar("E", bound=Exception)
 F = TypeVar("F", bound=Exception)
 
+
 P = ParamSpec("P")
 
 
-class AbstractResult(AbstractMonad[T]):
+class AbstractResult(AbstractMonad[T], AbstractDeferrableMonad[T]):
     @abstractmethod
     def is_ok(self) -> bool: ...
 
@@ -37,7 +50,7 @@ class AbstractResult(AbstractMonad[T]):
     def inspect_error(self, func: Callable[[T], None]) -> "Self": ...
 
     @abstractmethod
-    def to_maybe(self) -> "Maybe[T]": ...
+    def maybe(self) -> "Maybe[T]": ...
 
     @abstractmethod
     def __bool__(self) -> bool: ...
@@ -57,6 +70,16 @@ class Ok(AbstractResult[T]):
     def bind(self, func: Callable[[T], U]) -> "Result[U, Exception]":
         try:
             value = func(self.value)
+            return Ok(value)
+        except Exception as error:  # noqa: BLE001
+            return Error(error)
+
+    def bind_deferred(self, func: Callable[[T], Coroutine[Any, Any, U]]) -> "DeferredOk[T, T, U]":
+        return DeferredOk(self, func)
+
+    async def bind_async(self, func: Callable[[T], Coroutine[Any, Any, U]]) -> "Result[U, Exception]":
+        try:
+            value = await func(self.value)
             return Ok(value)
         except Exception as error:  # noqa: BLE001
             return Error(error)
@@ -89,7 +112,7 @@ class Ok(AbstractResult[T]):
     def inspect_error(self, func: Any) -> Self:  # noqa: ANN401, ARG002
         return self
 
-    def to_maybe(self) -> "Some[T]":
+    def maybe(self) -> "Some[T]":
         from functional_stuff.monads.maybe import Some
 
         return Some(self.value)
@@ -113,7 +136,13 @@ class Ok(AbstractResult[T]):
 class Error(AbstractResult[E]):
     error: E
 
-    def bind(self, func: Callable[[T], U]) -> "Result[U , E]":  # noqa: ARG002
+    def bind(self, func: Callable[[T], U]) -> "Result[U ,E]":  # noqa: ARG002
+        return self
+
+    def bind_deferred(self, func: Callable[[T], Coroutine[Any, Any, U]]) -> "DeferredError[E, T, U]":  # noqa: ARG002
+        return DeferredError(self)
+
+    async def bind_async(self, func: Callable[[T], Coroutine[Any, Any, U]]) -> "Result[U, E]":  # noqa: ARG002
         return self
 
     def join(self) -> "Error[E]":
@@ -138,7 +167,7 @@ class Error(AbstractResult[E]):
         func(self.error)
         return self
 
-    def to_maybe(self) -> "Nothing":
+    def maybe(self) -> "Nothing":
         from functional_stuff.monads.maybe import Nothing
 
         return Nothing()
@@ -165,6 +194,66 @@ def to_result(func: Callable[P, T]) -> Callable[P, Result[T, Exception]]:
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> Result[T, Exception]:
         try:
             result = func(*args, **kwargs)
+            return Ok(result)
+        except Exception as error:  # noqa: BLE001
+            return Error(error)
+
+    return wrapper
+
+
+class DeferredOk(AbstractDeferredMonad[T, U, V]):
+    __slots__ = ("_coroutines", "_ok")
+
+    def __init__(
+        self,
+        ok: Ok[T],
+        awaitable: Callable[[U], Coroutine[None, None, V]],
+        coroutines: tuple[Callable[..., Coroutine[None, None, Any]], ...] = (),
+    ) -> None:
+        self._ok = ok
+        self._coroutines = (*coroutines, awaitable)
+
+    def bind(self, awaitable: Callable[[V], Coroutine[None, None, W]]) -> "DeferredOk[T, V, W]":
+        return DeferredOk(self._ok, awaitable, self._coroutines)
+
+    async def wait(self) -> Result[V, Exception]:
+        result: Result[Any, Exception] = self._ok
+        for awaitable in self._coroutines:
+            if not result:
+                break
+
+            try:
+                value = await awaitable(result.value)
+                result = Ok(value)
+            except Exception as error:  # noqa: BLE001
+                result = Error(error)
+
+        return result
+
+
+class DeferredError(AbstractDeferredMonad[E, U, V]):
+    __slots__ = ("_error",)
+
+    def __init__(self, error: Error[E]) -> None:
+        self._error = error
+
+    def bind(self, awaitable: Callable[[V], Coroutine[None, None, W]]) -> "DeferredError[E, V, W]":  # noqa: ARG002
+        return cast("DeferredError[E, V, W]", self)
+
+    async def wait(self) -> Result[V, E]:
+        return self._error
+
+
+AsyncResult = DeferredOk[Any, Any, T] | DeferredError[E, Any, Any]
+
+
+def to_result_async(
+    func: Callable[P, Coroutine[Any, Any, T]],
+) -> Callable[P, Coroutine[Any, Any, Result[T, Exception]]]:
+    @wraps(func)
+    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> Result[T, Exception]:
+        try:
+            result = await func(*args, **kwargs)
             return Ok(result)
         except Exception as error:  # noqa: BLE001
             return Error(error)
