@@ -1,6 +1,6 @@
 [project]
 name = "functional-stuff"
-version = "0.1.0"
+version = "0.2.0"
 description = "Add your description here"
 readme = "README.md"
 authors = [{ name = "3k-dome", email = "doenerfresser3k@gmail.com" }]
@@ -24,7 +24,7 @@ select = ["ALL"]
 ignore = ["D"]
 
 [tool.ruff.lint.per-file-ignores]
-"**/**.ipynb" = ["T201"]
+"**/**.ipynb" = ["T201", "PIE790"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
