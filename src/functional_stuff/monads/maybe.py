@@ -28,7 +28,7 @@ class AbstractMaybe(AbstractMonad[T]):
     def unwrap_or_default(self, default: T) -> T: ...
 
     @abstractmethod
-    def to_result(self) -> "Result[T, TypeError]": ...
+    def result(self) -> "Result[T, TypeError]": ...
 
     @abstractmethod
     def __bool__(self) -> bool: ...
@@ -67,7 +67,7 @@ class Some(AbstractMaybe[T]):
     def unwrap_or_default(self, default: T) -> T:  # noqa: ARG002
         return self.value
 
-    def to_result(self) -> "Ok[T]":
+    def result(self) -> "Ok[T]":
         from functional_stuff.monads.result import Ok
 
         return Ok(self.value)
@@ -108,7 +108,7 @@ class Nothing(AbstractMaybe[NoReturn]):
     def unwrap_or_default(self, default: T) -> T:
         return default
 
-    def to_result(self) -> "Error[TypeError]":
+    def result(self) -> "Error[TypeError]":
         from functional_stuff.monads.result import Error
 
         error = "An instance of Nothing can't be unwrapped."
