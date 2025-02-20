@@ -4,7 +4,7 @@ from abc import abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import wraps
-from typing import TYPE_CHECKING, Literal, NoReturn, ParamSpec, TypeGuard, final
+from typing import TYPE_CHECKING, Literal, NoReturn, ParamSpec, TypeGuard, cast, final
 
 from functional_stuff.monads.base import AbstractMonad, M, T, U
 
@@ -88,11 +88,11 @@ class Some(AbstractMaybe[T]):
 
 @final
 @dataclass(slots=True, frozen=True)
-class Nothing(AbstractMaybe[NoReturn]):
-    def bind(self, func: Callable[[T], U]) -> "Nothing":  # noqa: ARG002
-        return self
+class Nothing(AbstractMaybe[T]):
+    def bind(self, func: Callable[[T], U | None]) -> "Nothing[U]":  # noqa: ARG002
+        return cast("Nothing[U]", self)
 
-    def join(self) -> "Nothing":
+    def join(self) -> "Nothing[T]":
         return self
 
     def is_some(self) -> Literal[False]:
@@ -117,7 +117,7 @@ class Nothing(AbstractMaybe[NoReturn]):
     def __bool__(self) -> Literal[False]:
         return self.is_some()
 
-    def __eq__(self, other: object) -> "TypeGuard[Nothing]":
+    def __eq__(self, other: object) -> "TypeGuard[Nothing[T]]":
         match other:
             case Nothing():
                 return True
@@ -128,7 +128,7 @@ class Nothing(AbstractMaybe[NoReturn]):
         return "Nothing()"
 
 
-Maybe = Some[T] | Nothing
+Maybe = Some[T] | Nothing[T]
 
 
 def to_maybe(func: Callable[P, T | None]) -> Callable[P, Maybe[T]]:
