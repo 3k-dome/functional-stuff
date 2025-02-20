@@ -4,7 +4,7 @@ from abc import abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import wraps
-from typing import TYPE_CHECKING, Any, Literal, NoReturn, ParamSpec, TypeGuard, final
+from typing import TYPE_CHECKING, Literal, NoReturn, ParamSpec, TypeGuard, final
 
 from functional_stuff.monads.base import AbstractMonad, M, T, U
 
@@ -89,7 +89,7 @@ class Some(AbstractMaybe[T]):
 @final
 @dataclass(slots=True, frozen=True)
 class Nothing(AbstractMaybe[NoReturn]):
-    def bind(self, func: Callable[[Any], U]) -> "Nothing":  # noqa: ARG002
+    def bind(self, func: Callable[[T], U]) -> "Nothing":  # noqa: ARG002
         return self
 
     def join(self) -> "Nothing":

@@ -136,13 +136,13 @@ class Ok(AbstractResult[T]):
 class Error(AbstractResult[E]):
     error: E
 
-    def bind(self, func: Callable[[T], U]) -> "Result[U ,E]":  # noqa: ARG002
+    def bind(self, func: Callable[[T], U]) -> "Error[E]":  # noqa: ARG002
         return self
 
     def bind_deferred(self, func: Callable[[T], Coroutine[Any, Any, U]]) -> "DeferredError[E, T, U]":  # noqa: ARG002
         return DeferredError(self)
 
-    async def bind_async(self, func: Callable[[T], Coroutine[Any, Any, U]]) -> "Result[U, E]":  # noqa: ARG002
+    async def bind_async(self, func: Callable[[T], Coroutine[Any, Any, U]]) -> "Error[E]":  # noqa: ARG002
         return self
 
     def join(self) -> "Error[E]":
@@ -201,6 +201,7 @@ def to_result(func: Callable[P, T]) -> Callable[P, Result[T, Exception]]:
     return wrapper
 
 
+@final
 class DeferredOk(AbstractDeferredMonad[T, U, V]):
     __slots__ = ("_coroutines", "_ok")
 
@@ -231,6 +232,7 @@ class DeferredOk(AbstractDeferredMonad[T, U, V]):
         return result
 
 
+@final
 class DeferredError(AbstractDeferredMonad[E, U, V]):
     __slots__ = ("_error",)
 
@@ -244,7 +246,7 @@ class DeferredError(AbstractDeferredMonad[E, U, V]):
         return self._error
 
 
-AsyncResult = DeferredOk[Any, Any, T] | DeferredError[E, Any, Any]
+DeferredResult = DeferredOk[Any, Any, T] | DeferredError[E, Any, Any]
 
 
 def to_result_async(
