@@ -5,6 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from functools import total_ordering, wraps
 from typing import (
+    TYPE_CHECKING,
     Any,
     Literal,
     NoReturn,
@@ -14,6 +15,9 @@ from typing import (
     cast,
     final,
 )
+
+if TYPE_CHECKING:
+    from functional_stuff.monads.maybe import Maybe
 
 from functional_stuff.monads.base import AbstractMonad, MonadT, T, U
 
@@ -52,6 +56,11 @@ class AbstractResult(AbstractMonad[T]):
         ...
 
     @abstractmethod
+    def maybe(self) -> "Maybe[T]":
+        """Converts to `Maybe[T]`, replaces any error with `Nothing`."""
+        ...
+
+    @abstractmethod
     def __lt__(self, other: "Result[T]") -> bool: ...
 
 
@@ -62,7 +71,7 @@ ResultT = TypeVar("ResultT", bound="AbstractResult[Any]")
 @total_ordering
 @dataclass(slots=True, frozen=True)
 class Ok(AbstractResult[T]):
-    """A success of type `T`.
+    """A success along with a value of type `T`.
 
     Being implemented as frozen dataclass automatically provides methods like `__str__` and `__repr__`,
     as well as tuple-based `__eq__` and `__hash__` methods. An `__lt__` method, which proxies the `__lt__`
@@ -105,6 +114,11 @@ class Ok(AbstractResult[T]):
 
     def inspect_error(self, func: Callable[[Exception], None]) -> Self:  # noqa: ARG002
         return self
+
+    def maybe(self) -> "Maybe[T]":
+        from functional_stuff.monads import Some
+
+        return Some(self.value)
 
     def __lt__(self, other: "Ok[T] | Error[T]") -> bool:
         # annotating this with `Result[T]` breaks when `functools.total_ordering` is applied
@@ -155,6 +169,11 @@ class Error(AbstractResult[T]):
     def inspect_error(self, func: Callable[[Exception], None]) -> Self:
         func(self.error)
         return self
+
+    def maybe(self) -> "Maybe[T]":
+        from functional_stuff.monads import Nothing
+
+        return Nothing[T]()
 
     def __lt__(self, other: "Ok[T] | Error[T]") -> bool:
         # annotating this with `Result[T]` breaks when `functools.total_ordering` is applied
