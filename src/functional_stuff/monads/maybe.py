@@ -135,6 +135,8 @@ P = ParamSpec("P")
 
 
 def maybe(func: Callable[P, T | None]) -> Callable[P, Maybe[T]]:
+    """Wraps the result of a function in a `Maybe` monad."""
+
     @wraps(func)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> Maybe[T]:
         match result := func(*args, **kwargs):
