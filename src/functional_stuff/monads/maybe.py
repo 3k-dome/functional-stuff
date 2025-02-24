@@ -1,58 +1,68 @@
-__all__ = ("Maybe", "Nothing", "Some", "to_maybe")
+__all__ = ("Maybe", "Nothing", "Some", "maybe")
+
 
 from abc import abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
-from functools import wraps
-from typing import TYPE_CHECKING, Literal, NoReturn, ParamSpec, TypeGuard, cast, final
+from functools import total_ordering, wraps
+from typing import Any, Literal, ParamSpec, TypeVar, cast, final
 
-from functional_stuff.monads.base import AbstractMonad, M, T, U
-
-if TYPE_CHECKING:
-    from functional_stuff.monads.result import Error, Ok, Result
-
-P = ParamSpec("P")
+from functional_stuff.monads.base import AbstractMonad, MonadT, T, U
 
 
 class AbstractMaybe(AbstractMonad[T]):
-    @abstractmethod
-    def is_some(self) -> bool: ...
+    """Abstract base for a maybe monad."""
 
     @abstractmethod
-    def is_nothing(self) -> bool: ...
+    def is_some(self) -> bool:
+        """Returns `True` if some value is contained."""
+        ...
 
     @abstractmethod
-    def unwrap(self) -> T: ...
+    def is_nothing(self) -> bool:
+        """Returns `True` if no value is contained."""
+        ...
 
     @abstractmethod
-    def unwrap_or_default(self, default: T) -> T: ...
+    def unwrap(self) -> T:
+        """Returns the contained value if any, else raises."""
+        ...
 
     @abstractmethod
-    def result(self) -> "Result[T, TypeError]": ...
+    def unwrap_or_default(self, default: T) -> T:
+        """Returns the contained value if any, else default."""
+        ...
 
     @abstractmethod
-    def __bool__(self) -> bool: ...
+    def __lt__(self, other: "Maybe[T]") -> bool: ...
 
-    @abstractmethod
-    def __eq__(self, other: object) -> bool: ...
 
-    @abstractmethod
-    def __repr__(self) -> str: ...
+MaybeT = TypeVar("MaybeT", bound="AbstractMaybe[Any]")
 
 
 @final
+@total_ordering
 @dataclass(slots=True, frozen=True)
 class Some(AbstractMaybe[T]):
+    """Some value of type `T`.
+
+    Being implemented as frozen dataclass automatically provides methods like `__str__` and `__repr__`,
+    as well as tuple-based `__eq__` and `__hash__` methods. An `__lt__` method, which proxies the `__lt__`
+    operator of the inner value (if any), is also provided and is used to apply `functools.total_ordering`.
+    An instance of `Nothing` is **always** less than an instance `Some`.
+    """
+
     value: T
 
-    def bind(self, func: Callable[[T], U | None]) -> "Maybe[U]":
-        match result := func(self.value):
-            case Nothing() | None:
-                return Nothing()
-            case _:
-                return Some(result)
+    def map(self, func: Callable[[T], U | None]) -> "Maybe[U]":
+        if result := func(self.value):
+            return Some(result)
+        return Nothing()
 
-    def join(self: "Some[M]") -> "M":
+    def bind(self, func: Callable[[T], MaybeT]) -> MaybeT:
+        return func(self.value)
+
+    def join(self: "Some[MonadT]") -> MonadT:
         return self.value
 
     def is_some(self) -> Literal[True]:
@@ -67,30 +77,32 @@ class Some(AbstractMaybe[T]):
     def unwrap_or_default(self, default: T) -> T:  # noqa: ARG002
         return self.value
 
-    def result(self) -> "Ok[T]":
-        from functional_stuff.monads.result import Ok
-
-        return Ok(self.value)
-
-    def __bool__(self) -> Literal[True]:
-        return self.is_some()
-
-    def __eq__(self, other: object) -> "TypeGuard[Some[T]]":
+    def __lt__(self, other: "Some[T] | Nothing[T]") -> bool:
+        # annotating this with `Maybe[T]` breaks when `functools.total_ordering` is applied
         match other:
-            case Some(value):  # pyright: ignore[reportUnknownVariableType]
-                return value == self.value  # pyright: ignore[reportUnknownVariableType]
+            case Some(value):
+                return cast(bool, self.value < value)  # pyright: ignore[reportOperatorIssue]
             case _:
                 return False
 
-    def __repr__(self) -> str:
-        return f"Some({self.value!r})"
-
 
 @final
+@total_ordering
 @dataclass(slots=True, frozen=True)
 class Nothing(AbstractMaybe[T]):
-    def bind(self, func: Callable[[T], U | None]) -> "Nothing[U]":  # noqa: ARG002
-        return cast("Nothing[U]", self)
+    """No value of type `T`.
+
+    Being implemented as frozen dataclass automatically provides methods like `__str__` and `__repr__`,
+    as well as tuple-based `__eq__` and `__hash__` methods. An `__lt__` method, which proxies the `__lt__`
+    operator of the inner value (if any), is also provided and is used to apply `functools.total_ordering`.
+    An instance of `Nothing` is **always** less than an instance `Some`.
+    """
+
+    def map(self, func: Callable[[T], U | None]) -> "Maybe[U]":  # noqa: ARG002
+        return cast(Nothing[U], self)
+
+    def bind(self, func: Callable[[T], MaybeT]) -> MaybeT:  # noqa: ARG002
+        return cast(MaybeT, self)
 
     def join(self) -> "Nothing[T]":
         return self
@@ -101,37 +113,28 @@ class Nothing(AbstractMaybe[T]):
     def is_nothing(self) -> Literal[True]:
         return True
 
-    def unwrap(self) -> NoReturn:
-        error = "An instance of Nothing can't be unwrapped."
-        raise TypeError(error)
+    def unwrap(self) -> T:
+        raise TypeError
 
     def unwrap_or_default(self, default: T) -> T:
         return default
 
-    def result(self) -> "Error[TypeError]":
-        from functional_stuff.monads.result import Error
-
-        error = "An instance of Nothing can't be unwrapped."
-        return Error(TypeError(error))
-
-    def __bool__(self) -> Literal[False]:
-        return self.is_some()
-
-    def __eq__(self, other: object) -> "TypeGuard[Nothing[T]]":
+    def __lt__(self, other: "Some[T] | Nothing[T]") -> bool:
+        # annotating this with `Maybe[T]` breaks when `functools.total_ordering` is applied
         match other:
-            case Nothing():
+            case Some():
                 return True
             case _:
                 return False
 
-    def __repr__(self) -> str:
-        return "Nothing()"
-
 
 Maybe = Some[T] | Nothing[T]
+"""Maybe some value of type `T` or nothing."""
+
+P = ParamSpec("P")
 
 
-def to_maybe(func: Callable[P, T | None]) -> Callable[P, Maybe[T]]:
+def maybe(func: Callable[P, T | None]) -> Callable[P, Maybe[T]]:
     @wraps(func)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> Maybe[T]:
         match result := func(*args, **kwargs):
