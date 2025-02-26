@@ -7,6 +7,7 @@ from typing import Any, TypeVar, cast, final, overload
 from functional_stuff.monads.base import AbstractMonad, T, U
 
 K = TypeVar("K", bound=object)
+Predicate = Callable[[T], bool]
 
 
 @final
@@ -38,6 +39,10 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
     def select_many(self, selector: Callable[[T], Iterable[U]]) -> "Enumerable[U]":
         """Projects each value of the underlying iterable into a new form of `U` and flattens the result."""
         return Enumerable(chain.from_iterable(selector(x) for x in self))
+
+    def where(self, predicate: Predicate[T]) -> "Enumerable[T]":
+        """Filters the underlying iterable base on `predicate`."""
+        return Enumerable(x for x in self if predicate(x))
 
     def to_deque(self) -> deque[T]:
         """Creates a new `deque[T]` by consuming the underlying iterable."""
