@@ -1,9 +1,9 @@
-__all__ = ("Error", "Ok", "Result", "to_result")
+__all__ = ("Error", "Ok", "Result", "result")
 
 from abc import abstractmethod
-from collections.abc import Callable, Coroutine
+from collections.abc import Callable
 from dataclasses import dataclass
-from functools import wraps
+from functools import total_ordering, wraps
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -11,86 +11,89 @@ from typing import (
     NoReturn,
     ParamSpec,
     Self,
-    TypeGuard,
     TypeVar,
     cast,
     final,
-    overload,
 )
 
-from functional_stuff.monads.base import AbstractDeferrableMonad, AbstractDeferredMonad, AbstractMonad, M, T, U, V, W
-
 if TYPE_CHECKING:
-    from functional_stuff.monads.maybe import Maybe, Nothing, Some
+    from functional_stuff.monads.maybe import Maybe
 
-E = TypeVar("E", bound=Exception)
-F = TypeVar("F", bound=Exception)
-
-
-P = ParamSpec("P")
+from functional_stuff.monads.base import AbstractMonad, MonadT, T, U
 
 
-class AbstractResult(AbstractMonad[T], AbstractDeferrableMonad[T]):
-    @abstractmethod
-    def is_ok(self) -> bool: ...
+class AbstractResult(AbstractMonad[T]):
+    """Abstract base for a result monad."""
 
     @abstractmethod
-    def is_error(self) -> bool: ...
+    def is_ok(self) -> bool:
+        """Returns `True` if the result is ok."""
+        ...
 
     @abstractmethod
-    def unwrap(self) -> T: ...
+    def is_error(self) -> bool:
+        """Returns `True` if the result is an exception."""
+        ...
 
     @abstractmethod
-    def unwrap_or_default(self, default: T | Any) -> T: ...  # noqa: ANN401
+    def unwrap(self) -> T:
+        """Returns the contained result if ok, else raises the contained error."""
+        ...
 
     @abstractmethod
-    def inspect(self, func: Callable[[T], None]) -> "Self": ...
+    def unwrap_or_default(self, default: T) -> T:
+        """Returns the contained result if ok, else default."""
+        ...
 
     @abstractmethod
-    def inspect_error(self, func: Callable[[T], None]) -> "Self": ...
+    def inspect(self, func: Callable[[T], None]) -> "Self":
+        """Calls a function with the contained value if `is_ok`."""
+        ...
 
     @abstractmethod
-    def maybe(self) -> "Maybe[T]": ...
+    def inspect_error(self, func: Callable[[Exception], None]) -> "Self":
+        """Calls a function with the contained value if `is_error`."""
+        ...
 
     @abstractmethod
-    def __bool__(self) -> bool: ...
+    def to_maybe(self) -> "Maybe[T]":
+        """Converts to `Maybe[T]`, replaces any error with `Nothing`."""
+        ...
 
     @abstractmethod
-    def __eq__(self, other: object) -> bool: ...
+    def __lt__(self, other: "Result[T]") -> bool: ...
 
-    @abstractmethod
-    def __repr__(self) -> str: ...
+
+ResultT = TypeVar("ResultT", bound="AbstractResult[Any]")
 
 
 @final
-@dataclass(frozen=True, slots=True)
+@total_ordering
+@dataclass(slots=True, frozen=True)
 class Ok(AbstractResult[T]):
+    """A success along with a value of type `T`.
+
+    Being implemented as frozen dataclass automatically provides methods like `__str__` and `__repr__`,
+    as well as tuple-based `__eq__` and `__hash__` methods. An `__lt__` method, which proxies the `__lt__`
+    operator of the inner value (if ok), is also provided and is used to apply `functools.total_ordering`.
+    An instance of `Error` is **always** less than an instance `Ok`.
+    """
+
     value: T
 
-    def bind(self, func: Callable[[T], U]) -> "Result[U, Exception]":
+    def map(self, func: Callable[[T], U]) -> "Result[U]":
         try:
-            value = func(self.value)
-            return Ok(value)
+            return Ok(func(self.value))
         except Exception as error:  # noqa: BLE001
             return Error(error)
 
-    def bind_deferred(self, func: Callable[[T], Coroutine[Any, Any, U]]) -> "DeferredOk[T, T, U]":
-        return DeferredOk(self, func)
-
-    async def bind_async(self, func: Callable[[T], Coroutine[Any, Any, U]]) -> "Result[U, Exception]":
+    def bind(self, func: Callable[[T], ResultT]) -> ResultT:
         try:
-            value = await func(self.value)
-            return Ok(value)
+            return func(self.value)
         except Exception as error:  # noqa: BLE001
-            return Error(error)
+            return cast(ResultT, Error(error))
 
-    @overload
-    def join(self: "Ok[Ok[U]]") -> "Ok[U]": ...
-
-    @overload
-    def join(self: "Ok[Error[F]]") -> "Error[F]": ...
-
-    def join(self: "Ok[M]") -> "M":
+    def join(self: "Ok[MonadT]") -> MonadT:
         return self.value
 
     def is_ok(self) -> Literal[True]:
@@ -109,43 +112,43 @@ class Ok(AbstractResult[T]):
         func(self.value)
         return self
 
-    def inspect_error(self, func: Any) -> Self:  # noqa: ANN401, ARG002
+    def inspect_error(self, func: Callable[[Exception], None]) -> Self:  # noqa: ARG002
         return self
 
-    def maybe(self) -> "Some[T]":
-        from functional_stuff.monads.maybe import Some
+    def to_maybe(self) -> "Maybe[T]":
+        from functional_stuff.monads import Some
 
         return Some(self.value)
 
-    def __bool__(self) -> Literal[True]:
-        return self.is_ok()
-
-    def __eq__(self, other: object) -> "TypeGuard[Ok[T]]":
+    def __lt__(self, other: "Ok[T] | Error[T]") -> bool:
+        # annotating this with `Result[T]` breaks when `functools.total_ordering` is applied
         match other:
-            case Ok(value):  # pyright: ignore[reportUnknownVariableType]
-                return value == self.value  # pyright: ignore[reportUnknownVariableType]
+            case Ok(value):
+                return cast(bool, self.value < value)  # pyright: ignore[reportOperatorIssue]
             case _:
                 return False
-
-    def __repr__(self) -> str:
-        return f"Ok({self.value!r})"
 
 
 @final
 @dataclass(frozen=True, slots=True)
-class Error(AbstractResult[E]):
-    error: E
+class Error(AbstractResult[T]):
+    """An error instead of a value of type `T`.
 
-    def bind(self, func: Callable[[T], U]) -> "Error[E]":  # noqa: ARG002
-        return self
+    Being implemented as frozen dataclass automatically provides methods like `__str__` and `__repr__`,
+    as well as tuple-based `__eq__` and `__hash__` methods. An `__lt__` method, which proxies the `__lt__`
+    operator of the inner value (if ok), is also provided and is used to apply `functools.total_ordering`.
+    An instance of `Error` is **always** less than an instance `Ok`.
+    """
 
-    def bind_deferred(self, func: Callable[[T], Coroutine[Any, Any, U]]) -> "DeferredError[E, T, U]":  # noqa: ARG002
-        return DeferredError(self)
+    error: Exception
 
-    async def bind_async(self, func: Callable[[T], Coroutine[Any, Any, U]]) -> "Error[E]":  # noqa: ARG002
-        return self
+    def map(self, func: Callable[[T], U]) -> "Result[U]":  # noqa: ARG002
+        return cast(Error[U], self)
 
-    def join(self) -> "Error[E]":
+    def bind(self, func: Callable[[T], ResultT]) -> ResultT:  # noqa: ARG002
+        return cast(ResultT, self)
+
+    def join(self) -> "Error[T]":
         return self
 
     def is_ok(self) -> Literal[False]:
@@ -157,105 +160,43 @@ class Error(AbstractResult[E]):
     def unwrap(self) -> NoReturn:
         raise self.error
 
-    def unwrap_or_default(self, default: Any) -> Any:  # noqa: ANN401
+    def unwrap_or_default(self, default: T) -> T:
         return default
 
-    def inspect(self, func: Any) -> Self:  # noqa: ANN401, ARG002
+    def inspect(self, func: Callable[[T], None]) -> Self:  # noqa: ARG002
         return self
 
-    def inspect_error(self, func: Callable[[E], None]) -> Self:
+    def inspect_error(self, func: Callable[[Exception], None]) -> Self:
         func(self.error)
         return self
 
-    def maybe(self) -> "Nothing":
-        from functional_stuff.monads.maybe import Nothing
+    def to_maybe(self) -> "Maybe[T]":
+        from functional_stuff.monads import Nothing
 
-        return Nothing()
+        return Nothing[T]()
 
-    def __bool__(self) -> Literal[False]:
-        return self.is_ok()
-
-    def __eq__(self, other: object) -> "TypeGuard[Error[E]]":
+    def __lt__(self, other: "Ok[T] | Error[T]") -> bool:
+        # annotating this with `Result[T]` breaks when `functools.total_ordering` is applied
         match other:
-            case Error(error):  # pyright: ignore[reportUnknownVariableType]
-                return error == self.error  # pyright: ignore[reportUnknownVariableType]
+            case Ok():
+                return True
             case _:
                 return False
 
-    def __repr__(self) -> str:
-        return f"Error({self.error!r})"
+
+Result = Ok[T] | Error[T]
+"""A success with a value of type `T` or an error."""
+
+P = ParamSpec("P")
 
 
-Result = Ok[T] | Error[E]
+def result(func: Callable[P, T]) -> Callable[P, Result[T]]:
+    """Wraps the result of a function in a `Result` monad."""
 
-
-def to_result(func: Callable[P, T]) -> Callable[P, Result[T, Exception]]:
     @wraps(func)
-    def wrapper(*args: P.args, **kwargs: P.kwargs) -> Result[T, Exception]:
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> Result[T]:
         try:
             result = func(*args, **kwargs)
-            return Ok(result)
-        except Exception as error:  # noqa: BLE001
-            return Error(error)
-
-    return wrapper
-
-
-@final
-class DeferredOk(AbstractDeferredMonad[T, U, V]):
-    __slots__ = ("_coroutines", "_ok")
-
-    def __init__(
-        self,
-        ok: Ok[T],
-        awaitable: Callable[[U], Coroutine[None, None, V]],
-        coroutines: tuple[Callable[..., Coroutine[None, None, Any]], ...] = (),
-    ) -> None:
-        self._ok = ok
-        self._coroutines = (*coroutines, awaitable)
-
-    def bind(self, awaitable: Callable[[V], Coroutine[None, None, W]]) -> "DeferredOk[T, V, W]":
-        return DeferredOk(self._ok, awaitable, self._coroutines)
-
-    async def wait(self) -> Result[V, Exception]:
-        result: Result[Any, Exception] = self._ok
-        for awaitable in self._coroutines:
-            if not result:
-                break
-
-            try:
-                value = await awaitable(result.value)
-                result = Ok(value)
-            except Exception as error:  # noqa: BLE001
-                result = Error(error)
-
-        return result
-
-
-@final
-class DeferredError(AbstractDeferredMonad[E, U, V]):
-    __slots__ = ("_error",)
-
-    def __init__(self, error: Error[E]) -> None:
-        self._error = error
-
-    def bind(self, awaitable: Callable[[V], Coroutine[None, None, W]]) -> "DeferredError[E, V, W]":  # noqa: ARG002
-        return cast("DeferredError[E, V, W]", self)
-
-    async def wait(self) -> Result[V, E]:
-        return self._error
-
-
-DeferredResult = DeferredOk[Any, Any, T] | DeferredError[E, Any, Any]
-
-
-def to_result_async(
-    func: Callable[P, Coroutine[Any, Any, T]],
-) -> Callable[P, Coroutine[Any, Any, Result[T, Exception]]]:
-    @wraps(func)
-    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> Result[T, Exception]:
-        try:
-            result = await func(*args, **kwargs)
             return Ok(result)
         except Exception as error:  # noqa: BLE001
             return Error(error)
