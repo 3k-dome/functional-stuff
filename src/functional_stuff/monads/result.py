@@ -56,7 +56,7 @@ class AbstractResult(AbstractMonad[T]):
         ...
 
     @abstractmethod
-    def maybe(self) -> "Maybe[T]":
+    def to_maybe(self) -> "Maybe[T]":
         """Converts to `Maybe[T]`, replaces any error with `Nothing`."""
         ...
 
@@ -115,7 +115,7 @@ class Ok(AbstractResult[T]):
     def inspect_error(self, func: Callable[[Exception], None]) -> Self:  # noqa: ARG002
         return self
 
-    def maybe(self) -> "Maybe[T]":
+    def to_maybe(self) -> "Maybe[T]":
         from functional_stuff.monads import Some
 
         return Some(self.value)
@@ -170,7 +170,7 @@ class Error(AbstractResult[T]):
         func(self.error)
         return self
 
-    def maybe(self) -> "Maybe[T]":
+    def to_maybe(self) -> "Maybe[T]":
         from functional_stuff.monads import Nothing
 
         return Nothing[T]()

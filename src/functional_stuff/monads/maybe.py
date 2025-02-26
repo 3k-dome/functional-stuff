@@ -5,9 +5,12 @@ from abc import abstractmethod
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import total_ordering, wraps
-from typing import Any, Literal, ParamSpec, TypeVar, cast, final
+from typing import TYPE_CHECKING, Any, Literal, ParamSpec, TypeVar, cast, final
 
 from functional_stuff.monads.base import AbstractMonad, MonadT, T, U
+
+if TYPE_CHECKING:
+    from functional_stuff.monads.result import Result
 
 
 class AbstractMaybe(AbstractMonad[T]):
@@ -31,6 +34,11 @@ class AbstractMaybe(AbstractMonad[T]):
     @abstractmethod
     def unwrap_or_default(self, default: T) -> T:
         """Returns the contained value if any, else default."""
+        ...
+
+    @abstractmethod
+    def to_result(self) -> "Result[T]":
+        """Converts to `Result[T]`, replaces `Nothing` with `ValueError`."""
         ...
 
     @abstractmethod
@@ -77,6 +85,11 @@ class Some(AbstractMaybe[T]):
     def unwrap_or_default(self, default: T) -> T:  # noqa: ARG002
         return self.value
 
+    def to_result(self) -> "Result[T]":
+        from functional_stuff.monads import Ok
+
+        return Ok(self.value)
+
     def __lt__(self, other: "Some[T] | Nothing[T]") -> bool:
         # annotating this with `Maybe[T]` breaks when `functools.total_ordering` is applied
         match other:
@@ -118,6 +131,11 @@ class Nothing(AbstractMaybe[T]):
 
     def unwrap_or_default(self, default: T) -> T:
         return default
+
+    def to_result(self) -> "Result[T]":
+        from functional_stuff.monads import Error
+
+        return Error[T](ValueError())
 
     def __lt__(self, other: "Some[T] | Nothing[T]") -> bool:
         # annotating this with `Maybe[T]` breaks when `functools.total_ordering` is applied
