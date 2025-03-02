@@ -6,9 +6,12 @@ from collections.abc import Callable, Iterable, Iterator
 from dataclasses import InitVar, dataclass, field
 from functools import reduce, wraps
 from itertools import chain, tee
-from typing import Any, Concatenate, ParamSpec, TypeVar, cast, final, overload
+from typing import TYPE_CHECKING, Any, Concatenate, ParamSpec, TypeVar, cast, final, overload
 
 from functional_stuff.monads.base import AbstractMonad, T, U
+
+if TYPE_CHECKING:
+    from functional_stuff.utils.protocols import ComparableT
 
 K = TypeVar("K", bound=object)
 P = ParamSpec("P")
@@ -124,6 +127,21 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
             case _:
                 reducer = cast(Callable[[U, T], U], reducer)
                 return reduce(reducer, self, initial)
+
+    def order(self: "Enumerable[ComparableT]", *, reverse: bool = False) -> "Enumerable[ComparableT]":
+        """Orders the elements of the underlying enumerable in ascending order."""
+        return Enumerable(sorted(self, reverse=reverse))
+
+    def order_by(self: "Enumerable[T]", key: Callable[[T], "ComparableT"], *, reverse: bool = False) -> "Enumerable[T]":
+        """Orders the elements of the underlying enumerable in ascending order using the given key selector.
+
+        `Enumerable` does not implement methods like `order_by_desc` and `then_by` or `then_by_desc`.
+
+        To order an `Enumerable` in descending order, the `reverse` keyword can be used. To order by one or more
+        properties use either a key function that returns a `tuple` of those properties or use multiple serial
+        calls to `order_by` to make use of Pythons stable sort.
+        """
+        return Enumerable(sorted(self, key=key, reverse=reverse))
 
     # region conversion
 
