@@ -4,7 +4,7 @@ __all__ = ("Enumerable", "enumerable")
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import InitVar, dataclass, field
-from functools import wraps
+from functools import reduce, wraps
 from itertools import chain, tee
 from typing import Any, Concatenate, ParamSpec, TypeVar, cast, final, overload
 
@@ -20,7 +20,7 @@ def preserve(func: Callable[Concatenate["Enumerable[T]", P], U]) -> Callable[Con
 
     Replaces the underlying iterable with `functools.tee` if it is an `Iterator` (i.e. items
     will probably get consumed) and `preserve=True`, otherwise assumes that the inner iterable
-    is some for of non consuming collection type and does nothing.
+    is some form of non consuming collection type and does nothing.
     """
 
     @wraps(func)
@@ -47,6 +47,8 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
     iterable: InitVar[Iterable[T]] = tuple[T]()
     _iterable: Iterable[T] = field(init=False)
 
+    # region base
+
     def __post_init__(self, iterable: Iterable[T]) -> None:
         self._iterable = iterable
 
@@ -64,6 +66,8 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
     def join(self: "Enumerable[EnumerableT]") -> "EnumerableT":
         """Proxies `select_many` for inner `Enumerable`s using an identity function."""
         return cast("EnumerableT", self.select_many(lambda x: x))
+
+    # endregion
 
     def select(self, selector: Callable[[T], U]) -> "Enumerable[U]":
         """Projects each value of the underlying iterable into a new form of `U`."""
@@ -88,7 +92,7 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
 
     @preserve
     def any(self, predicate: Predicate[T] | None = None, *, preserve: bool = False) -> bool:  # noqa: ARG002
-        """Return True if any element satisfies the predicate or if any element exists."""
+        """Return `True` if any element satisfies the predicate or if any element exists."""
         match predicate:
             case Callable():
                 return any(predicate(x) for x in self)
@@ -99,8 +103,37 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
 
     @preserve
     def all(self, predicate: Predicate[T], *, preserve: bool = False) -> bool:  # noqa: ARG002
-        """Return True if all elements satisfy the predicate."""
+        """Return `True` if all elements satisfy the predicate."""
         return all(predicate(x) for x in self)
+
+    @overload
+    def aggregate(self, reducer: Callable[[T, T], T]) -> T: ...
+
+    @overload
+    def aggregate(self, reducer: Callable[[T, T], T], initial: None) -> T: ...
+
+    @overload
+    def aggregate(self, reducer: Callable[[U, T], U], initial: U) -> U: ...
+
+    def aggregate(self, reducer: Callable[[U, T], U] | Callable[[T, T], T], initial: U | None = None) -> U | T:
+        """Aggregates the underlying iterable using the given `reducer`."""
+        match initial:
+            case None:
+                reducer = cast(Callable[[T, T], T], reducer)
+                return reduce(reducer, self)
+            case _:
+                reducer = cast(Callable[[U, T], U], reducer)
+                return reduce(reducer, self, initial)
+
+    # region conversion
+
+    def cast(self, dtype: type[U]) -> "Enumerable[U]":  # noqa: ARG002
+        """Proxies `typing.cast`, should be used with caution."""
+        return cast("Enumerable[U]", self)
+
+    def of_type(self, dtype: type[U]) -> "Enumerable[U]":
+        """Filters the underlying iterable using `isinstance`, internally chains `where` and `cast`."""
+        return self.where(lambda x: isinstance(x, dtype)).cast(dtype)
 
     def to_deque(self) -> deque[T]:
         """Creates a new `deque[T]` by consuming the underlying iterable."""
@@ -130,6 +163,8 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
                 return {key(x): func(x) for x in self}
             case _:
                 return {key(x): x for x in self}
+
+    # endregion
 
 
 EnumerableT = TypeVar("EnumerableT", bound=Enumerable[Any])
