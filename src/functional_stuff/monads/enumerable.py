@@ -143,6 +143,16 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
         """
         return Enumerable(sorted(self, key=key, reverse=reverse))
 
+    def distinct(self) -> "Enumerable[T]":
+        """Returns an enumerable of distinct elements."""
+        container = set[T]()
+        return Enumerable(x for x in self if x not in container and not container.add(x))
+
+    def distinct_by(self, selector: Callable[[T], U]) -> "Enumerable[T]":
+        """Returns an enumerable of distinct elements determined using the given key selector."""
+        container = set[U]()
+        return Enumerable(x for x in self if (y := selector(x)) not in container and not container.add(y))
+
     # region conversion
 
     def cast(self, dtype: type[U]) -> "Enumerable[U]":  # noqa: ARG002
