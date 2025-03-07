@@ -1,12 +1,13 @@
 __all__ = ("Enumerable", "enumerable")
 
 
+import operator
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import InitVar, dataclass, field
 from functools import reduce, wraps
 from itertools import chain, tee
-from typing import TYPE_CHECKING, Any, Concatenate, ParamSpec, TypeVar, cast, final, overload
+from typing import TYPE_CHECKING, Any, Concatenate, Literal, ParamSpec, TypeVar, cast, final, overload
 
 from functional_stuff.monads.base import AbstractMonad, T, U
 
@@ -109,6 +110,17 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
         """Return `True` if all elements satisfy the predicate."""
         return all(predicate(x) for x in self)
 
+    def contains(self, element: T, *, comparer: Literal["eq", "is"] = "eq", preserve: bool = False) -> bool:
+        """Returns `True` if the enumerable contains the given element.
+
+        Dispatches `Enumerable.any` using a predicate that either checks for equality `eq` or identity `is`.
+        """
+        match comparer:
+            case "eq":
+                return self.any(lambda x: operator.eq(x, element), preserve=preserve)
+            case "is":
+                return self.any(lambda x: operator.is_(x, element), preserve=preserve)
+
     @overload
     def aggregate(self, reducer: Callable[[T, T], T]) -> T: ...
 
@@ -152,6 +164,31 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
         """Returns an enumerable of distinct elements determined using the given key selector."""
         container = set[U]()
         return Enumerable(x for x in self if (y := selector(x)) not in container and not container.add(y))
+
+    def prepend(self, *elements: T) -> "Enumerable[T]":
+        """Adds one or more elements to the beginning of the enumerable."""
+        return Enumerable(chain(elements, self))
+
+    def append(self, *elements: T) -> "Enumerable[T]":
+        """Adds one or more elements to the end of the enumerable."""
+        return Enumerable(chain(self, elements))
+
+    def concat(self, *iterables: Iterable[T]) -> "Enumerable[T]":
+        """Adds the elements of one or more iterables to the end of the enumerable."""
+        return Enumerable(chain(self, chain.from_iterable(iterables)))
+
+    def zip(self, iterable: Iterable[U], *, strict: bool = False) -> "Enumerable[tuple[T, U]]":
+        """Combines two iterables to a single enumerable of tuples.
+
+        Proxies `zip` and therefore raises `ValueError` if one iterable has less elements than
+        the other if `strict=True`, otherwise combines elements until the first iterable is exhausted.
+        """
+        return Enumerable(zip(self, iterable, strict=strict))
+
+    @classmethod
+    def empty(cls) -> "Enumerable[T]":
+        """Creates an empty enumerable."""
+        return cls()
 
     # region conversion
 
