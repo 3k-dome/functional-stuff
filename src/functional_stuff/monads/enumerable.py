@@ -249,6 +249,22 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
             case _:
                 return {key(x): x for x in self}
 
+    def preserve(self) -> "Enumerable[T]":
+        """Returns a new enumerable with its elements unwrapped into a collection type.
+
+        Converts an inner iterator into a static collection type (using `Enumerable.to_list`) which allows
+        multiple iterations over its contents without consuming any of its elements.
+
+        The effect of this method is similar to the `preserve` decorator and therefore any method that uses the
+        preserve keyword. But unlike those which rely on `itertools.tee` to only cache consumed elements, this
+        method unwraps the whole graph at once which may consume more memory.
+        """
+        match self._iterable:
+            case Iterator():
+                return Enumerable(self.to_list())
+            case _:
+                return self
+
     # endregion
 
 
