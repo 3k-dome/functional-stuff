@@ -121,6 +121,26 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
             case "is":
                 return self.any(lambda x: operator.is_(x, element), preserve=preserve)
 
+    @preserve
+    def min(self: "Enumerable[ComparableT]", *, preserve: bool = False) -> "ComparableT":  # noqa: ARG002
+        """Returns the smallest element of the enumerable."""
+        return min(self)
+
+    @preserve
+    def min_by(self, key: Callable[[T], "ComparableT"], *, preserve: bool = False) -> T:  # noqa: ARG002
+        """Returns the smallest element of the enumerable determined by the given key selector."""
+        return min(self, key=key)
+
+    @preserve
+    def max(self: "Enumerable[ComparableT]", *, preserve: bool = False) -> "ComparableT":  # noqa: ARG002
+        """Returns the largest element of the enumerable."""
+        return max(self)
+
+    @preserve
+    def max_by(self, key: Callable[[T], "ComparableT"], *, preserve: bool = False) -> T:  # noqa: ARG002
+        """Returns the largest element of the enumerable determined by the given key selector."""
+        return max(self, key=key)
+
     @overload
     def aggregate(self, reducer: Callable[[T, T], T]) -> T: ...
 
