@@ -247,6 +247,34 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
         """
         return Enumerable(zip(self, iterable, strict=strict))
 
+    def difference(self, iterable: Iterable[T]) -> "Enumerable[T]":
+        """Returns an enumerable containing the set difference of this and the given iterable."""
+        container = set(iterable)
+        return Enumerable(x for x in self if x not in container and not container.add(x))
+
+    def difference_by(self, iterable: Iterable[T], key: Callable[[T], U]) -> "Enumerable[T]":
+        """Returns an enumerable containing the set difference of this and the given iterable, determined by `key`."""
+        container = {key(x) for x in iterable}
+        return Enumerable(x for x in self if (y := key(x)) not in container and not container.add(y))
+
+    def intersection(self, iterable: Iterable[T]) -> "Enumerable[T]":
+        """Returns an enumerable containing the set intersection of this and the given iterable."""
+        container = set(iterable)
+        return Enumerable(x for x in self if x in container)
+
+    def intersection_by(self, iterable: Iterable[T], key: Callable[[T], U]) -> "Enumerable[T]":
+        """Returns an enumerable containing the set intersection of this and the given iterable, determined by `key`."""
+        container = {key(x) for x in iterable}
+        return Enumerable(x for x in self if key(x) in container)
+
+    def union(self, iterable: Iterable[T]) -> "Enumerable[T]":
+        """Returns an enumerable containing the set union of this and the given iterable."""
+        return self.concat(iterable).distinct()
+
+    def union_by(self, iterable: Iterable[T], key: Callable[[T], U]) -> "Enumerable[T]":
+        """Returns an enumerable containing the set union of this and the given iterable, determined by `key`."""
+        return self.concat(iterable).distinct_by(key)
+
     # region conversion
 
     def cast(self, dtype: type[U]) -> "Enumerable[U]":  # noqa: ARG002
@@ -333,3 +361,13 @@ def enumerable(func: Callable[P, Iterable[T] | None]) -> Callable[P, Enumerable[
                 return result
 
     return wrapper
+
+
+a = Enumerable([1, 2, 3, 4, 5])
+
+
+print(
+    a.difference([1, 2, 3]).to_list(),
+    a.intersection([1, 2, 3]).to_list(),
+    a.union([1, 2, 3, 6, 7]).to_list(),
+)
