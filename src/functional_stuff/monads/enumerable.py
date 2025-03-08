@@ -361,3 +361,13 @@ def enumerable(func: Callable[P, Iterable[T] | None]) -> Callable[P, Enumerable[
                 return result
 
     return wrapper
+
+
+a = Enumerable([1, 2, 3, 4, 5])
+
+
+print(
+    a.difference([1, 2, 3]).to_list(),
+    a.intersection([1, 2, 3]).to_list(),
+    a.union([1, 2, 3, 6, 7]).to_list(),
+)
