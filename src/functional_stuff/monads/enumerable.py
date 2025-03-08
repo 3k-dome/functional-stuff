@@ -6,7 +6,7 @@ from collections import deque
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import InitVar, dataclass, field
 from functools import reduce, wraps
-from itertools import chain, tee
+from itertools import chain, groupby, tee
 from typing import TYPE_CHECKING, Any, Concatenate, Literal, ParamSpec, TypeVar, cast, final, overload
 
 from functional_stuff.monads.base import AbstractMonad, T, U
@@ -160,11 +160,53 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
                 reducer = cast(Callable[[U, T], U], reducer)
                 return reduce(reducer, self, initial)
 
+    @overload
+    def group_by(
+        self: "Enumerable[ComparableT]",
+        *,
+        reverse: bool = False,
+    ) -> "Enumerable[tuple[ComparableT, Enumerable[ComparableT]]]": ...
+
+    @overload
+    def group_by(
+        self: "Enumerable[ComparableT]",
+        key: None,
+        *,
+        reverse: bool = False,
+    ) -> "Enumerable[tuple[ComparableT, Enumerable[ComparableT]]]": ...
+
+    @overload
+    def group_by(
+        self: "Enumerable[T]",
+        key: Callable[[T], "ComparableT"],
+        *,
+        reverse: bool = False,
+    ) -> "Enumerable[tuple[ComparableT, Enumerable[T]]]": ...
+
+    def group_by(
+        self: "Enumerable[ComparableT] | Enumerable[T]",
+        key: Callable[[T], "ComparableT"] | None = None,
+        *,
+        reverse: bool = False,
+    ) -> "Enumerable[tuple[ComparableT, Enumerable[ComparableT]]] | Enumerable[tuple[ComparableT, Enumerable[T]]]":
+        """Groups the elements of the enumerable by a given key, returning a new enumerable of keys and groups.
+
+        If `key is None`, the element itself is used as key. Elements are sorted in ascending order
+        using `key` before any grouping is done, use `reverse` to order the elements in descending order.
+        """
+        match key:
+            case Callable():
+                container = cast("Enumerable[T]", self).order_by(key, reverse=reverse)
+                return Enumerable((k, Enumerable(g)) for k, g in groupby(container, key=key))
+            case _:
+                container = cast("Enumerable[ComparableT]", self).order(reverse=reverse)
+                return Enumerable((k, Enumerable(g)) for k, g in groupby(container))
+
     def order(self: "Enumerable[ComparableT]", *, reverse: bool = False) -> "Enumerable[ComparableT]":
         """Orders the elements of the underlying enumerable in ascending order."""
         return Enumerable(sorted(self, reverse=reverse))
 
-    def order_by(self: "Enumerable[T]", key: Callable[[T], "ComparableT"], *, reverse: bool = False) -> "Enumerable[T]":
+    def order_by(self, key: Callable[[T], "ComparableT"], *, reverse: bool = False) -> "Enumerable[T]":
         """Orders the elements of the underlying enumerable in ascending order using the given key selector.
 
         `Enumerable` does not implement methods like `order_by_desc` and `then_by` or `then_by_desc`.
@@ -204,11 +246,6 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
         the other if `strict=True`, otherwise combines elements until the first iterable is exhausted.
         """
         return Enumerable(zip(self, iterable, strict=strict))
-
-    @classmethod
-    def empty(cls) -> "Enumerable[T]":
-        """Creates an empty enumerable."""
-        return cls()
 
     # region conversion
 
@@ -266,6 +303,11 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
                 return self
 
     # endregion
+
+    @classmethod
+    def empty(cls) -> "Enumerable[T]":
+        """Creates an empty enumerable."""
+        return cls()
 
 
 EnumerableT = TypeVar("EnumerableT", bound=Enumerable[Any])
