@@ -3,10 +3,10 @@ __all__ = ("Enumerable", "enumerable")
 
 import operator
 from collections import deque
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Reversible
 from dataclasses import InitVar, dataclass, field
 from functools import reduce, wraps
-from itertools import chain, groupby, tee
+from itertools import chain, groupby, islice, takewhile, tee
 from typing import TYPE_CHECKING, Any, Concatenate, Literal, ParamSpec, TypeVar, cast, final, overload
 
 from functional_stuff.monads.base import AbstractMonad, T, U
@@ -120,6 +120,63 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
                 return self.any(lambda x: operator.eq(x, element), preserve=preserve)
             case "is":
                 return self.any(lambda x: operator.is_(x, element), preserve=preserve)
+
+    def reverse(self) -> "Enumerable[T]":
+        """Reverses the enumerable.
+
+        Simply reverses the underlying iterable if possible, otherwise unwraps it and than reverses it.
+        """
+        match self._iterable:
+            case Reversible() as reversible:
+                return Enumerable(reversed(reversible))
+            case _:
+                container = self.to_tuple()
+                return Enumerable(reversed(container))
+
+    def first(self, predicate: Predicate[T] | None = None) -> T:
+        """Returns the first element (matching `predicate`) of the enterable."""
+        match predicate:
+            case Callable():
+                return next(x for x in self if predicate(x))
+            case _:
+                return next(x for x in self)
+
+    def first_or_default(self, default: T, predicate: Predicate[T] | None = None) -> T:
+        """Returns the first element (matching `predicate`) of the enterable, or `default`."""
+        match predicate:
+            case Callable():
+                return next((x for x in self if predicate(x)), default)
+            case _:
+                return next(x for x in self)
+
+    def last(self, predicate: Predicate[T] | None = None) -> T:
+        """Returns the last element (matching `predicate`) of the enterable.
+
+        Internally reverses the enumerable, may consume any underlying iterators.
+        """
+        return self.reverse().first(predicate)
+
+    def last_or_default(self, default: T, predicate: Predicate[T] | None = None) -> T:
+        """Returns the last element (matching `predicate`) of the enterable, or `default`.
+
+        Internally reverses the enumerable, may consume any underlying iterators.
+        """
+        return self.reverse().first_or_default(default, predicate)
+
+    def take(self, count: int) -> "Enumerable[T]":
+        """Returns up to `count` elements from the enterable."""
+        return Enumerable(islice(self, count))
+
+    def take_last(self, count: int) -> "Enumerable[T]":
+        """Returns up to `count` elements from the back of the enterable.
+
+        Internally reverses the enumerable, may consume any underlying iterators.
+        """
+        return self.reverse().take(count)
+
+    def take_while(self, predicate: Predicate[T]) -> "Enumerable[T]":
+        """Returns elements from the enterable as long as `predicate` evaluates to `True`."""
+        return Enumerable(takewhile(predicate, self))
 
     @preserve
     def min(self: "Enumerable[ComparableT]", *, preserve: bool = False) -> "ComparableT":  # noqa: ARG002
@@ -297,6 +354,10 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
         """Creates a new `set[T]` by consuming the underlying iterable."""
         return set(self)
 
+    def to_tuple(self) -> tuple[T, ...]:
+        """Creates a new `tuple[T]` by consuming the underlying iterable."""
+        return tuple(self)
+
     @overload
     def to_dict(self, key: Callable[[T], K]) -> dict[K, T]: ...
 
@@ -326,7 +387,7 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
         """
         match self._iterable:
             case Iterator():
-                return Enumerable(self.to_list())
+                return Enumerable(self.to_tuple())
             case _:
                 return self
 
