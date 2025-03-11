@@ -3,7 +3,7 @@ __all__ = ("Enumerable", "enumerable")
 
 import operator
 from collections import deque
-from collections.abc import Callable, Iterable, Iterator, Reversible
+from collections.abc import Callable, Collection, Iterable, Iterator, Reversible
 from dataclasses import InitVar, dataclass, field
 from functools import reduce, wraps
 from itertools import batched, chain, groupby, islice, takewhile, tee
@@ -19,7 +19,7 @@ P = ParamSpec("P")
 Predicate = Callable[[T], bool]
 
 
-def preserve(func: Callable[Concatenate["Enumerable[T]", P], U]) -> Callable[Concatenate["Enumerable[T]", P], U]:
+def preserve(func: Callable[Concatenate["Enumerable[Any]", P], U]) -> Callable[Concatenate["Enumerable[Any]", P], U]:
     """Enables a consuming method to preserve its elements if `preserve=True` is passed.
 
     Replaces the underlying iterable with `functools.tee` if it is an `Iterator` (i.e. items
@@ -28,7 +28,7 @@ def preserve(func: Callable[Concatenate["Enumerable[T]", P], U]) -> Callable[Con
     """
 
     @wraps(func)
-    def wrapper(instance: "Enumerable[T]", *args: P.args, **kwargs: P.kwargs) -> U:
+    def wrapper(instance: "Enumerable[Any]", *args: P.args, **kwargs: P.kwargs) -> U:
         preserve = kwargs.get("preserve")
         match (instance._iterable, preserve):  # pyright: ignore[reportPrivateUsage] # noqa: SLF001
             case (Iterator() as iterable, True):
@@ -105,7 +105,7 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
                     return True
                 return False
 
-    @preserve
+    # @preserve
     def all(self, predicate: Predicate[T], *, preserve: bool = False) -> bool:  # noqa: ARG002
         """Return `True` if all elements satisfy the predicate."""
         return all(predicate(x) for x in self)
@@ -197,6 +197,36 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
     def max_by(self, key: Callable[[T], "ComparableT"], *, preserve: bool = False) -> T:  # noqa: ARG002
         """Returns the largest element of the enumerable determined by the given key selector."""
         return max(self, key=key)
+
+    @preserve
+    def count(self, *, preserve: bool = False) -> int:  # noqa: ARG002
+        """Returns the number of elements in the enumerable."""
+        match self._iterable:
+            case Collection():
+                return len(self._iterable)
+            case _:
+                i = 0
+                for _ in enumerate(self, 1):
+                    i += 1
+                return i
+
+    @overload
+    def sum(self: "Enumerable[int]", *, preserve: bool = False) -> int: ...
+
+    @overload
+    def sum(self: "Enumerable[int | float]", *, preserve: bool = False) -> float: ...
+
+    @preserve
+    def sum(self: "Enumerable[int] | Enumerable[int | float]", *, preserve: bool = False) -> int | float:  # noqa: ARG002
+        """Returns the sum of all elements."""
+        return sum(self)
+
+    @preserve
+    def average(self: "Enumerable[int | float]", *, preserve: bool = False) -> float:  # noqa: ARG002
+        """Returns the average of all elements."""
+        # lazy length walrus closure, count is always at least 1 and therefore true
+        length = 0
+        return Enumerable(x for count, x in enumerate(self, 1) if (length := count)).sum() / length
 
     @overload
     def aggregate(self, reducer: Callable[[T, T], T]) -> T: ...
@@ -322,8 +352,8 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
         """
 
         if not size & 1 or size < 0:
-            msg = f"Size must be and uneven integer greater than zero, {size=}."
-            raise ValueError(msg)
+            error = f"Size must be and uneven integer greater than zero, {size=}."
+            raise ValueError(error)
 
         window = deque[T](maxlen=size)
 
@@ -365,6 +395,13 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
     def union_by(self, iterable: Iterable[T], key: Callable[[T], U]) -> "Enumerable[T]":
         """Returns an enumerable containing the set union of this and the given iterable, determined by `key`."""
         return self.concat(iterable).distinct_by(key)
+
+    def equals(self, iterable: Iterable[U]) -> bool:
+        """Returns `True` if both iterables iterate over the same element."""
+        try:
+            return self.zip(iterable, strict=True).all(lambda x: x[0] == x[1])
+        except ValueError:
+            return False
 
     # region conversion
 
