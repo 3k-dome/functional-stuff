@@ -6,7 +6,7 @@ from collections import deque
 from collections.abc import Callable, Iterable, Iterator, Reversible
 from dataclasses import InitVar, dataclass, field
 from functools import reduce, wraps
-from itertools import chain, groupby, islice, takewhile, tee
+from itertools import batched, chain, groupby, islice, takewhile, tee
 from typing import TYPE_CHECKING, Any, Concatenate, Literal, ParamSpec, TypeVar, cast, final, overload
 
 from functional_stuff.monads.base import AbstractMonad, T, U
@@ -303,6 +303,40 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
         the other if `strict=True`, otherwise combines elements until the first iterable is exhausted.
         """
         return Enumerable(zip(self, iterable, strict=strict))
+
+    def skip(self, count: int) -> "Enumerable[T]":
+        """Returns an enumerable without the first `count` elements."""
+        return Enumerable(islice(self, count, None))
+
+    def chunk(self, size: int) -> "Enumerable[Enumerable[T]]":
+        """Returns an enumerable over subsets up to length `size` of this enumerable."""
+        return Enumerable(Enumerable(x) for x in batched(self, size))
+
+    def window(self, size: int, *, padding: T | None = None) -> "Enumerable[Enumerable[T]]":
+        """Returns an enumerable of sliding windows over each element.
+
+        If `padding is None` the window starts with a size of `1` and grows until `size` is reached
+        before elements are dropped, e.g. `window((0, 1, 2, 3), 3)` => `(0,), (0, 1,), (0, 1, 2), (1, 2, 3)`.
+        Otherwise the enumerable is padded (font & back) with `padding` so that each element is always centered
+        within its window, e.g. `window((0, 1, 2, 3), 3, padding=-1)` => `(-1, 0, 1), (0, 1, 2), (1, 2, 3), (2, 3, -1)`
+        """
+
+        if not size & 1 or size < 0:
+            msg = f"Size must be and uneven integer greater than zero, {size=}."
+            raise ValueError(msg)
+
+        window = deque[T](maxlen=size)
+
+        if padding is None:
+            return Enumerable(Enumerable(window) for x in self if not window.append(x))
+
+        width = size // 2
+        dummies = [padding] * width
+        window.extend(dummies)
+        window.extend(self.take(width))
+        enumerable = self if isinstance(self._iterable, Iterator) else self.skip(width)
+        enumerable = enumerable.concat(dummies)
+        return Enumerable(Enumerable(window) for x in enumerable if not window.append(x))
 
     def difference(self, iterable: Iterable[T]) -> "Enumerable[T]":
         """Returns an enumerable containing the set difference of this and the given iterable."""
