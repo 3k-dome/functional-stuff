@@ -179,6 +179,29 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
         except IndexError:
             return default
 
+    def single(self, predicate: Predicate[T] | None) -> T:
+        """Returns the only element of the enumerable."""
+        container = self.where(predicate) if isinstance(predicate, Callable) else self
+        match (container.count(preserve=True), predicate):
+            case (1, _):
+                return container.first()
+            case (0, None):
+                error = "Enumerable is empty."
+            case (0, _):
+                error = f"Enumerable does not contain any one element matching predicate, {predicate=}."
+            case (_, None):
+                error = "Enumerable contains more than a one element."
+            case _:
+                error = f"Enumerable contains more than one element matching predicate, {predicate=}."
+        raise ValueError(error)
+
+    def single_or_default(self, default: T, predicate: Predicate[T]) -> T:
+        """Returns the only element of the enumerable or `default`."""
+        try:
+            return self.single(predicate)
+        except ValueError:
+            return default
+
     def last(self, predicate: Predicate[T] | None = None) -> T:
         """Returns the last element (matching `predicate`) of the enterable.
 
