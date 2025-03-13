@@ -2,6 +2,7 @@ __all__ = ("Enumerable", "enumerable")
 
 
 import operator
+import warnings
 from collections import deque
 from collections.abc import Callable, Collection, Iterable, Iterator, Reversible
 from dataclasses import InitVar, dataclass, field
@@ -26,6 +27,10 @@ def preserve(func: Callable[Concatenate["Enumerable[Any]", P], U]) -> Callable[C
     will probably get consumed) and `preserve=True`, otherwise assumes that the inner iterable
     is some form of non consuming collection type and does nothing.
     """
+
+    if "preserve" not in func.__annotations__:
+        warning = f"Preserved function does not have an `preserve` key word, {func=}."
+        warnings.warn(warning, SyntaxWarning, stacklevel=2)
 
     @wraps(func)
     def wrapper(instance: "Enumerable[Any]", *args: P.args, **kwargs: P.kwargs) -> U:
@@ -74,15 +79,15 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
     # endregion
 
     def select(self, selector: Callable[[T], U]) -> "Enumerable[U]":
-        """Projects each value of the underlying iterable into a new form of `U`."""
+        """Projects each value of the enterable into a new form of `U`."""
         return Enumerable(selector(x) for x in self)
 
     def select_many(self, selector: Callable[[T], Iterable[U]]) -> "Enumerable[U]":
-        """Projects each value of the underlying iterable into a new form of `U` and flattens the result."""
+        """Projects each value of the enterable into a new form of `U` and flattens the result."""
         return Enumerable(chain.from_iterable(selector(x) for x in self))
 
     def where(self, predicate: Predicate[T]) -> "Enumerable[T]":
-        """Filters the underlying iterable base on `predicate`."""
+        """Filters the enumerable based on `predicate`."""
         return Enumerable(x for x in self if predicate(x))
 
     @overload
@@ -178,6 +183,10 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
         """Returns elements from the enterable as long as `predicate` evaluates to `True`."""
         return Enumerable(takewhile(predicate, self))
 
+    def skip(self, count: int) -> "Enumerable[T]":
+        """Returns an enumerable without the first `count` elements."""
+        return Enumerable(islice(self, count, None))
+
     @preserve
     def min(self: "Enumerable[ComparableT]", *, preserve: bool = False) -> "ComparableT":  # noqa: ARG002
         """Returns the smallest element of the enumerable."""
@@ -238,7 +247,7 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
     def aggregate(self, reducer: Callable[[U, T], U], initial: U) -> U: ...
 
     def aggregate(self, reducer: Callable[[U, T], U] | Callable[[T, T], T], initial: U | None = None) -> U | T:
-        """Aggregates the underlying iterable using the given `reducer`."""
+        """Aggregates the elements of this enumerable using the given `reducer`."""
         match initial:
             case None:
                 reducer = cast(Callable[[T, T], T], reducer)
@@ -290,11 +299,11 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
                 return Enumerable((k, Enumerable(g)) for k, g in groupby(container))
 
     def order(self: "Enumerable[ComparableT]", *, reverse: bool = False) -> "Enumerable[ComparableT]":
-        """Orders the elements of the underlying enumerable in ascending order."""
+        """Orders the elements of this enumerable in ascending order."""
         return Enumerable(sorted(self, reverse=reverse))
 
     def order_by(self, key: Callable[[T], "ComparableT"], *, reverse: bool = False) -> "Enumerable[T]":
-        """Orders the elements of the underlying enumerable in ascending order using the given key selector.
+        """Orders the elements of this enumerable in ascending order using the given key selector.
 
         `Enumerable` does not implement methods like `order_by_desc` and `then_by` or `then_by_desc`.
 
@@ -333,10 +342,6 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
         the other if `strict=True`, otherwise combines elements until the first iterable is exhausted.
         """
         return Enumerable(zip(self, iterable, strict=strict))
-
-    def skip(self, count: int) -> "Enumerable[T]":
-        """Returns an enumerable without the first `count` elements."""
-        return Enumerable(islice(self, count, None))
 
     def chunk(self, size: int) -> "Enumerable[Enumerable[T]]":
         """Returns an enumerable over subsets up to length `size` of this enumerable."""
@@ -410,23 +415,23 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
         return cast("Enumerable[U]", self)
 
     def of_type(self, dtype: type[U]) -> "Enumerable[U]":
-        """Filters the underlying iterable using `isinstance`, internally chains `where` and `cast`."""
+        """Filters the enumerable a given type."""
         return self.where(lambda x: isinstance(x, dtype)).cast(dtype)
 
     def to_deque(self) -> deque[T]:
-        """Creates a new `deque[T]` by consuming the underlying iterable."""
+        """Creates a new `deque[T]` by consuming the enumerable."""
         return deque(self)
 
     def to_list(self) -> list[T]:
-        """Creates a new `list[T]` by consuming the underlying iterable."""
+        """Creates a new `list[T]` by consuming the enumerable."""
         return list(self)
 
     def to_set(self) -> set[T]:
-        """Creates a new `set[T]` by consuming the underlying iterable."""
+        """Creates a new `set[T]` by consuming the enumerable."""
         return set(self)
 
     def to_tuple(self) -> tuple[T, ...]:
-        """Creates a new `tuple[T]` by consuming the underlying iterable."""
+        """Creates a new `tuple[T]` by consuming the enumerable."""
         return tuple(self)
 
     @overload
@@ -439,14 +444,14 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
     def to_dict(self, key: Callable[[T], K], func: Callable[[T], U]) -> dict[K, U]: ...
 
     def to_dict(self, key: Callable[[T], K], func: Callable[[T], U] | None = None) -> dict[K, U] | dict[K, T]:
-        """Creates a new `dict[K, U]` or `dict[K, T]` by consuming the underlying iterable."""
+        """Creates a new `dict[K, U]` or `dict[K, T]` by consuming the enumerable."""
         match func:
             case Callable():
                 return {key(x): func(x) for x in self}
             case _:
                 return {key(x): x for x in self}
 
-    def preserve(self) -> "Enumerable[T]":
+    def freeze(self) -> "Enumerable[T]":
         """Returns a new enumerable with its elements unwrapped into a collection type.
 
         Converts an inner iterator into a static collection type (using `Enumerable.to_list`) which allows
