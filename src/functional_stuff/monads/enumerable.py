@@ -1,6 +1,7 @@
 __all__ = ("Enumerable", "enumerable")
 
 
+import contextlib
 import operator
 import warnings
 from collections import deque
@@ -159,6 +160,24 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
                 return next((x for x in self if predicate(x)), default)
             case _:
                 return next(x for x in self)
+
+    def element_at(self, index: int) -> T:
+        """Returns the element at `index`."""
+        with contextlib.suppress(StopIteration, IndexError):
+            match self._iterable:
+                case Sequence():
+                    return self._iterable[index]
+                case _:
+                    return next(x for i, x in (enumerate(self)) if i == index)
+        error = f"Enumerable has no element at index, {index=}."
+        raise IndexError(error)
+
+    def element_at_or_default(self, index: int, default: T) -> T:
+        """Returns the element at `index` or `default`."""
+        try:
+            return self.element_at(index)
+        except IndexError:
+            return default
 
     def last(self, predicate: Predicate[T] | None = None) -> T:
         """Returns the last element (matching `predicate`) of the enterable.
