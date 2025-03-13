@@ -4,7 +4,7 @@ __all__ = ("Enumerable", "enumerable")
 import operator
 import warnings
 from collections import deque
-from collections.abc import Callable, Collection, Iterable, Iterator, Reversible
+from collections.abc import Callable, Collection, Iterable, Iterator, Reversible, Sequence
 from dataclasses import InitVar, dataclass, field
 from functools import reduce, wraps
 from itertools import batched, chain, groupby, islice, takewhile, tee
@@ -76,6 +76,11 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
         """Proxies `select_many` for inner `Enumerable`s using an identity function."""
         return cast("EnumerableT", self.select_many(lambda x: x))
 
+    @classmethod
+    def empty(cls) -> "Enumerable[T]":
+        """Creates an empty enumerable."""
+        return cls()
+
     # endregion
 
     def select(self, selector: Callable[[T], U]) -> "Enumerable[U]":
@@ -110,11 +115,12 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
                     return True
                 return False
 
-    # @preserve
+    @preserve
     def all(self, predicate: Predicate[T], *, preserve: bool = False) -> bool:  # noqa: ARG002
         """Return `True` if all elements satisfy the predicate."""
         return all(predicate(x) for x in self)
 
+    @preserve
     def contains(self, element: T, *, comparer: Literal["eq", "is"] = "eq", preserve: bool = False) -> bool:
         """Returns `True` if the enumerable contains the given element.
 
@@ -187,6 +193,34 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
         """Returns an enumerable without the first `count` elements."""
         return Enumerable(islice(self, count, None))
 
+    def skip_last(self, count: int) -> "Enumerable[T]":
+        """Returns an enumerable without the last `count` elements."""
+
+        if isinstance(self._iterable, Sequence):
+            return Enumerable(self._iterable[:-count])
+
+        # shift and count and iterator of self
+        container = deque[T](maxlen=count)
+        iterator = iter(self)
+        for _ in range(count):
+            try:
+                container.append(next(iterator))
+            except StopIteration:
+                return Enumerable[T].empty()
+
+        # yield form the shifted iterator
+        def shifted() -> Iterator[T]:
+            for element in iterator:
+                yield container.popleft()
+                container.append(element)
+
+        return Enumerable(shifted())
+
+    def skip_while(self, predicate: Predicate[T]) -> "Enumerable[T]":
+        """Returns an enumerable skipping elements until `predicate` equals `False` for the first time."""
+        take = False
+        return Enumerable(x for x in self if (take := not predicate(x) or take))
+
     @preserve
     def min(self: "Enumerable[ComparableT]", *, preserve: bool = False) -> "ComparableT":  # noqa: ARG002
         """Returns the smallest element of the enumerable."""
@@ -214,10 +248,7 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
             case Collection():
                 return len(self._iterable)
             case _:
-                i = 0
-                for _ in enumerate(self, 1):
-                    i += 1
-                return i
+                return sum(1 for _ in self)
 
     @overload
     def sum(self: "Enumerable[int]", *, preserve: bool = False) -> int: ...
@@ -468,11 +499,6 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
                 return self
 
     # endregion
-
-    @classmethod
-    def empty(cls) -> "Enumerable[T]":
-        """Creates an empty enumerable."""
-        return cls()
 
 
 EnumerableT = TypeVar("EnumerableT", bound=Enumerable[Any])
