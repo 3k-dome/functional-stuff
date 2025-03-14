@@ -261,7 +261,7 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
     def skip_while(self, predicate: Predicate[T]) -> "Enumerable[T]":
         """Returns an enumerable skipping elements until `predicate` equals `False` for the first time."""
         take = False
-        return Enumerable(x for x in self if (take := not predicate(x) or take))
+        return Enumerable(x for x in self if (take := take or not predicate(x)))
 
     @preserve
     def min(self: "Enumerable[ComparableT]", *, preserve: bool = False) -> "ComparableT":  # noqa: ARG002
@@ -446,6 +446,8 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
         enumerable = enumerable.concat(dummies)
         return Enumerable(Enumerable(window) for x in enumerable if not window.append(x))
 
+    # region set-operations
+
     def difference(self, iterable: Iterable[T]) -> "Enumerable[T]":
         """Returns an enumerable containing the set difference of this and the given iterable."""
         container = set(iterable)
@@ -474,6 +476,8 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
         """Returns an enumerable containing the set union of this and the given iterable, determined by `key`."""
         return self.concat(iterable).distinct_by(key)
 
+    # endregion
+
     def equals(self, iterable: Iterable[U]) -> bool:
         """Returns `True` if both iterables iterate over the same element."""
         try:
@@ -481,7 +485,7 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
         except ValueError:
             return False
 
-    # region conversion
+    # region type-conversion
 
     def cast(self, dtype: type[U]) -> "Enumerable[U]":  # noqa: ARG002
         """Proxies `typing.cast`, should be used with caution."""
@@ -524,6 +528,8 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
             case _:
                 return {key(x): x for x in self}
 
+    # endregion
+
     def freeze(self) -> "Enumerable[T]":
         """Returns a new enumerable with its elements unwrapped into a collection type.
 
@@ -539,8 +545,6 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
                 return Enumerable(self.to_tuple())
             case _:
                 return self
-
-    # endregion
 
 
 EnumerableT = TypeVar("EnumerableT", bound=Enumerable[Any])
