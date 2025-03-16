@@ -300,11 +300,21 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
         return sum(self)
 
     @preserve
+    def sum_by(self, key: Callable[[T], int] | Callable[[T], int | float], *, preserve: bool = False) -> int | float:  # noqa: ARG002
+        """Returns the sum of all elements by `key`."""
+        return sum(key(x) for x in self)
+
+    @preserve
     def average(self: "Enumerable[int | float]", *, preserve: bool = False) -> float:  # noqa: ARG002
         """Returns the average of all elements."""
-        # lazy length walrus closure, count is always at least 1 and therefore true
         length = 0
         return Enumerable(x for count, x in enumerate(self, 1) if (length := count)).sum() / length
+
+    @preserve
+    def average_by(self, key: Callable[[T], int | float], *, preserve: bool = False) -> float:  # noqa: ARG002
+        """Returns the average of all elements by `key`."""
+        length = 0
+        return Enumerable(key(x) for count, x in enumerate(self, 1) if (length := count)).sum() / length
 
     @overload
     def aggregate(self, reducer: Callable[[T, T], T]) -> T: ...
@@ -444,10 +454,10 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
 
     # endregion
 
-    def equals(self, iterable: Iterable[U]) -> bool:
+    def equals(self, iterable: Iterable[U], *, preserve: bool = False) -> bool:
         """Returns `True` if both iterables iterate over the same element."""
         try:
-            return self.zip(iterable, strict=True).all(lambda x: x[0] == x[1])
+            return self.zip(iterable, strict=True).all(lambda x: x[0] == x[1], preserve=preserve)
         except ValueError:
             return False
 
