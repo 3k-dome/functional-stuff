@@ -44,32 +44,40 @@ def preserve(func: Callable[Concatenate["Enumerable[Any]", P], U]) -> Callable[C
 class Enumerable(Iterable[T], AbstractMonad[T]):
     __slots__ = ("_iterable",)
 
-    # region base
-
     def __init__(self, iterable: Iterable[T] = tuple[T]()) -> None:
         self._iterable = iterable
 
     def __iter__(self) -> Iterator[T]:
         return iter(self._iterable)
 
+    @classmethod
+    def empty(cls) -> "Enumerable[T]":
+        """Returns a new empty enumerable."""
+        return cls()
+
+    # region projection
+
     def map(self, func: Callable[[T], U]) -> "Enumerable[U]":
+        """See `Enumerable.select()`."""
         return self.select(func)
 
     def bind(self, func: Callable[[T], "EnumerableT"]) -> "EnumerableT":
+        """See `Enumerable.select_many()`."""
         return cast("EnumerableT", self.select_many(func))
 
     def join(self: "Enumerable[EnumerableT]") -> "EnumerableT":
+        """See `Enumerable.select_many(lambda x: x)`."""
         return cast("EnumerableT", self.select_many(lambda x: x))
 
-    @classmethod
-    def empty(cls) -> "Enumerable[T]":
-        return cls()
-
     def select(self, selector: Callable[[T], U]) -> "Enumerable[U]":
+        """Returns a new enumerable by applying `selector` to each source element."""
         return Enumerable(selector(x) for x in self)
 
     def select_many(self, selector: Callable[[T], Iterable[U]]) -> "Enumerable[U]":
+        """Returns a new enumerable by applying `selector` to each source element and flattening the result."""
         return Enumerable(chain.from_iterable(selector(x) for x in self))
+
+    # endregion
 
     def where(self, predicate: Predicate[T]) -> "Enumerable[T]":
         return Enumerable(x for x in self if predicate(x))
