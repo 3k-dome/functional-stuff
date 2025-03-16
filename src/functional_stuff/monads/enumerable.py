@@ -55,7 +55,7 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
         """Returns a new empty enumerable."""
         return cls()
 
-    # region projection
+    # region projecting
 
     def map(self, func: Callable[[T], U]) -> "Enumerable[U]":
         """See `Enumerable.select()`."""
@@ -79,8 +79,59 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
 
     # endregion
 
+    # region filtering
+
     def where(self, predicate: Predicate[T]) -> "Enumerable[T]":
+        """Returns a new enumerable containing all source elements that satisfy `predicate`."""
         return Enumerable(x for x in self if predicate(x))
+
+    def take(self, count: int) -> "Enumerable[T]":
+        """Returns a new enumerable containing the first `count` source elements."""
+        return Enumerable(islice(self, count))
+
+    def take_last(self, count: int) -> "Enumerable[T]":
+        """Returns a new enumerable containing the last `count` source elements.
+
+        Internally materializes and reverses the source enumerable before any elements are yielded; use with caution.
+        """
+        return self.reverse().take(count)
+
+    def take_while(self, predicate: Predicate[T]) -> "Enumerable[T]":
+        """Returns a new enumerable containing all successive source elements that satisfy `predicate`."""
+        return Enumerable(takewhile(predicate, self))
+
+    def skip(self, count: int) -> "Enumerable[T]":
+        """Returns a new enumerable excluding the first `count` source elements."""
+        return Enumerable(islice(self, count, None))
+
+    def skip_last(self, count: int) -> "Enumerable[T]":
+        """Returns a new enumerable excluding the last `count` source elements."""
+        if isinstance(self._iterable, Sequence):
+            return Enumerable(self._iterable[:-count])
+
+        # shift and count and iterator of self
+        container = deque[T](maxlen=count)
+        iterator = iter(self)
+        for _ in range(count):
+            try:
+                container.append(next(iterator))
+            except StopIteration:
+                return Enumerable[T].empty()
+
+        # yield form the shifted iterator
+        def shifted() -> Iterator[T]:
+            for element in iterator:
+                yield container.popleft()
+                container.append(element)
+
+        return Enumerable(shifted())
+
+    def skip_while(self, predicate: Predicate[T]) -> "Enumerable[T]":
+        """Returns a new enumerable excluding all successive source elements that satisfy `predicate`."""
+        take = False
+        return Enumerable(x for x in self if (take := take or not predicate(x)))
+
+    # endregion
 
     @overload
     def any(self, predicate: None, *, preserve: bool = False) -> bool: ...
@@ -177,43 +228,6 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
 
     def last_or_default(self, default: T, predicate: Predicate[T] | None = None) -> T:
         return self.reverse().first_or_default(default, predicate)
-
-    def take(self, count: int) -> "Enumerable[T]":
-        return Enumerable(islice(self, count))
-
-    def take_last(self, count: int) -> "Enumerable[T]":
-        return self.reverse().take(count)
-
-    def take_while(self, predicate: Predicate[T]) -> "Enumerable[T]":
-        return Enumerable(takewhile(predicate, self))
-
-    def skip(self, count: int) -> "Enumerable[T]":
-        return Enumerable(islice(self, count, None))
-
-    def skip_last(self, count: int) -> "Enumerable[T]":
-        if isinstance(self._iterable, Sequence):
-            return Enumerable(self._iterable[:-count])
-
-        # shift and count and iterator of self
-        container = deque[T](maxlen=count)
-        iterator = iter(self)
-        for _ in range(count):
-            try:
-                container.append(next(iterator))
-            except StopIteration:
-                return Enumerable[T].empty()
-
-        # yield form the shifted iterator
-        def shifted() -> Iterator[T]:
-            for element in iterator:
-                yield container.popleft()
-                container.append(element)
-
-        return Enumerable(shifted())
-
-    def skip_while(self, predicate: Predicate[T]) -> "Enumerable[T]":
-        take = False
-        return Enumerable(x for x in self if (take := take or not predicate(x)))
 
     @preserve
     def min(self: "Enumerable[ComparableT]", *, preserve: bool = False) -> "ComparableT":  # noqa: ARG002
