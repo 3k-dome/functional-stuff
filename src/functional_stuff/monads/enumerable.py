@@ -133,6 +133,48 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
 
     # endregion
 
+    # region set-operations
+
+    def distinct(self) -> "Enumerable[T]":
+        """Returns a new enumerable of all distinct source elements."""
+        container = set[T]()
+        return Enumerable(x for x in self if x not in container and not container.add(x))
+
+    def distinct_by(self, key: Callable[[T], U]) -> "Enumerable[T]":
+        """Returns a new enumerable of all distinct source elements, determined by `key`."""
+        container = set[U]()
+        return Enumerable(x for x in self if (y := key(x)) not in container and not container.add(y))
+
+    def difference(self, iterable: Iterable[T]) -> "Enumerable[T]":
+        """Returns a new enumerable of all distinct source elements not in `iterable`."""
+        container = set(iterable)
+        return Enumerable(x for x in self if x not in container and not container.add(x))
+
+    def difference_by(self, iterable: Iterable[T], key: Callable[[T], U]) -> "Enumerable[T]":
+        """Returns a new enumerable of all distinct source elements not in `iterable`, determined by `key`."""
+        container = {key(x) for x in iterable}
+        return Enumerable(x for x in self if (y := key(x)) not in container and not container.add(y))
+
+    def intersection(self, iterable: Iterable[T]) -> "Enumerable[T]":
+        """Returns a new enumerable of all distinct source elements also in `iterable`."""
+        container = set(iterable)
+        return Enumerable(x for x in self if x in container).distinct()
+
+    def intersection_by(self, iterable: Iterable[T], key: Callable[[T], U]) -> "Enumerable[T]":
+        """Returns a new enumerable of all distinct source elements also in `iterable`, determined by `key`."""
+        container = {key(x) for x in iterable}
+        return Enumerable(x for x in self if key(x) in container).distinct_by(key)
+
+    def union(self, iterable: Iterable[T]) -> "Enumerable[T]":
+        """Returns a new enumerable of all distinct elements of source and `iterable`."""
+        return self.concat(iterable).distinct()
+
+    def union_by(self, iterable: Iterable[T], key: Callable[[T], U]) -> "Enumerable[T]":
+        """Returns a new enumerable of all distinct elements of source and `iterable`, determined by `key`."""
+        return self.concat(iterable).distinct_by(key)
+
+    # endregion
+
     @overload
     def any(self, predicate: None, *, preserve: bool = False) -> bool: ...
 
@@ -318,14 +360,6 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
     def order_by(self, key: Callable[[T], "ComparableT"], *, reverse: bool = False) -> "OrderedEnumerable[T]":
         return OrderedEnumerable(self._iterable, key, reverse=reverse)
 
-    def distinct(self) -> "Enumerable[T]":
-        container = set[T]()
-        return Enumerable(x for x in self if x not in container and not container.add(x))
-
-    def distinct_by(self, selector: Callable[[T], U]) -> "Enumerable[T]":
-        container = set[U]()
-        return Enumerable(x for x in self if (y := selector(x)) not in container and not container.add(y))
-
     def prepend(self, *elements: T) -> "Enumerable[T]":
         return Enumerable(chain(elements, self))
 
@@ -358,32 +392,6 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
         enumerable = self if isinstance(self._iterable, Iterator) else self.skip(width)
         enumerable = enumerable.concat(dummies)
         return Enumerable(Enumerable(window) for x in enumerable if not window.append(x))
-
-    # region set-operations
-
-    def difference(self, iterable: Iterable[T]) -> "Enumerable[T]":
-        container = set(iterable)
-        return Enumerable(x for x in self if x not in container and not container.add(x))
-
-    def difference_by(self, iterable: Iterable[T], key: Callable[[T], U]) -> "Enumerable[T]":
-        container = {key(x) for x in iterable}
-        return Enumerable(x for x in self if (y := key(x)) not in container and not container.add(y))
-
-    def intersection(self, iterable: Iterable[T]) -> "Enumerable[T]":
-        container = set(iterable)
-        return Enumerable(x for x in self if x in container)
-
-    def intersection_by(self, iterable: Iterable[T], key: Callable[[T], U]) -> "Enumerable[T]":
-        container = {key(x) for x in iterable}
-        return Enumerable(x for x in self if key(x) in container)
-
-    def union(self, iterable: Iterable[T]) -> "Enumerable[T]":
-        return self.concat(iterable).distinct()
-
-    def union_by(self, iterable: Iterable[T], key: Callable[[T], U]) -> "Enumerable[T]":
-        return self.concat(iterable).distinct_by(key)
-
-    # endregion
 
     def equals(self, iterable: Iterable[U], *, preserve: bool = False) -> bool:
         try:
