@@ -21,6 +21,14 @@ Predicate = Callable[[T], bool]
 
 
 def preserve(func: Callable[Concatenate["Enumerable[Any]", P], U]) -> Callable[Concatenate["Enumerable[Any]", P], U]:
+    """Preserves iterations on `Enterable`s that use `Iterator`s.
+
+    Replaces the source enumerable's `Iterator` with `itertools.tee` to make consumed values also available
+    in the next function call. Only consumed elements are cached.
+
+    Only applies if `preserve=True` is passed as keyword argument and if the source enumerable wraps an `Iterator`.
+    """
+
     if "preserve" not in func.__annotations__:
         warning = f"Preserved function does not have an `preserve` key word, {func=}."
         warnings.warn(warning, SyntaxWarning, stacklevel=2)
@@ -42,6 +50,8 @@ def preserve(func: Callable[Concatenate["Enumerable[Any]", P], U]) -> Callable[C
 
 
 class Enumerable(Iterable[T], AbstractMonad[T]):
+    """Wraps any `Iterable` in a `LINQ` inspired fluent interface."""
+
     __slots__ = ("_iterable",)
 
     def __init__(self, iterable: Iterable[T] = tuple[T]()) -> None:
@@ -527,7 +537,7 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
         over the same iterable. This might be useful as the source enumerable may be an `Iterator`
         which would consume its elements upon iteration.
 
-        Only `Iterator`s are materializeds.
+        Only `Iterator`s are materialized.
         """
         match self._iterable:
             case Iterator():
@@ -539,6 +549,8 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
 
 
 class OrderedEnumerable(Enumerable[T]):
+    """Wraps an `Iterable` to allow for multiple secondary sort-keys, sorting is applied upon iteration."""
+
     __slots__ = ("_order",)
 
     def __init__(self, iterable: Iterable[T], key: Callable[[T], "ComparableT"], *, reverse: bool) -> None:
@@ -547,10 +559,12 @@ class OrderedEnumerable(Enumerable[T]):
         self._order.append((key, reverse))
 
     def order_by(self, key: Callable[[T], "ComparableT"], *, reverse: bool = False) -> Self:
+        """Updates this enumerable to use `key` as primary sort-key."""
         self._order.append((key, reverse))
         return self
 
     def then_by(self, key: Callable[[T], "ComparableT"], *, reverse: bool = False) -> Self:
+        """Updates this enumerable to use `key` as additional secondary sort-key."""
         self._order.appendleft((key, reverse))
         return self
 
@@ -561,6 +575,8 @@ class OrderedEnumerable(Enumerable[T]):
 
 
 class GroupedEnumerable(Enumerable[T], Generic[U, T]):
+    """Wraps an `Iterable` that was grouped by key."""
+
     __slots__ = ("_key",)
 
     def __init__(self, iterable: Iterable[T], *, key: U) -> None:
@@ -569,6 +585,7 @@ class GroupedEnumerable(Enumerable[T], Generic[U, T]):
 
     @property
     def key(self) -> U:
+        """Returns the key used for grouping."""
         return self._key
 
 
@@ -584,6 +601,8 @@ def enumerable(func: Callable[P, Iterable[T] | None]) -> Callable[P, Enumerable[
 
 
 def enumerable(func: Callable[P, Iterable[T] | None]) -> Callable[P, Enumerable[T] | None]:
+    """Lifts a function that would return an `Iterable` to return an `Enterable`."""
+
     @wraps(func)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> Enumerable[T] | None:
         match result := func(*args, **kwargs):
