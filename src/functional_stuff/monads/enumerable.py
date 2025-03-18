@@ -133,6 +133,83 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
 
     # endregion
 
+    # region sequencing
+
+    def prepend(self, *elements: T) -> "Enumerable[T]":
+        """Returns a new enumerable with `elements` inserted in front of the source enumerable."""
+        return Enumerable(chain(elements, self))
+
+    def append(self, *elements: T) -> "Enumerable[T]":
+        """Returns a new enumerable with `elements` inserted at the end of the source enumerable."""
+        return Enumerable(chain(self, elements))
+
+    def concat(self, *iterables: Iterable[T]) -> "Enumerable[T]":
+        """Returns a new enumerable with all elements of `iterables` inserted at the end of the source enumerable."""
+        return Enumerable(chain(self, chain.from_iterable(iterables)))
+
+    def zip(self, iterable: Iterable[U], *, strict: bool = True) -> "Enumerable[tuple[T, U]]":
+        """Returns a new enumerable iterating over source elements zipped with the elements of `iterable`.
+
+        Internally uses `zip`, setting `strict=True` will therefore result in
+        a `ValueError` if the number of elements in source and `iterable` differs.
+        """
+        return Enumerable(zip(self, iterable, strict=strict))
+
+    def chunk(self, size: int) -> "Enumerable[Enumerable[T]]":
+        """Returns a new enumerable of chunks with up to `size` source elements."""
+        return Enumerable(Enumerable(x) for x in batched(self, size))
+
+    def window(self, size: int, *, padding: T | None = None) -> "Enumerable[Enumerable[T]]":
+        """Returns a new enumerable of windows over each source element.
+
+        If `padding` is given the first and last source elements will be padded so that they are
+        centered within their window, otherwise the window will continuously grow until `size` is reached.
+        """
+        if not size & 1 or size < 0:
+            error = f"Size must be and uneven integer greater than zero, {size=}."
+            raise ValueError(error)
+
+        window = deque[T](maxlen=size)
+
+        if padding is None:
+            return Enumerable(Enumerable(window) for x in self if not window.append(x))
+
+        width = size // 2
+        dummies = [padding] * width
+        window.extend(dummies)
+        window.extend(self.take(width))
+        enumerable = self if isinstance(self._iterable, Iterator) else self.skip(width)
+        enumerable = enumerable.concat(dummies)
+        return Enumerable(Enumerable(window) for x in enumerable if not window.append(x))
+
+    def group(
+        self: "Enumerable[ComparableT]",
+        *,
+        reverse: bool = False,
+    ) -> "Enumerable[GroupedEnumerable[ComparableT, ComparableT]]":
+        """Returns a new enumerable of `GroupedEnumerable`s, grouped by source value.
+
+        Unlike `itertools.groupby` this method does not requires the source enumerable
+        to be sorted beforehand as sorting is included (hence the `reverse` keyword).
+        """
+        container = self.order(reverse=reverse)
+        return Enumerable(GroupedEnumerable(group, key=key) for key, group in groupby(container))
+
+    def group_by(
+        self,
+        key: Callable[[T], "ComparableT"],
+        *,
+        reverse: bool = False,
+    ) -> "Enumerable[GroupedEnumerable[ComparableT, T]]":
+        """Returns a new enumerable of `GroupedEnumerable`s, grouped by `key`.
+
+        Unlike `itertools.groupby` this method does not requires the source enumerable
+        to be sorted beforehand as sorting by `key` is included (hence the `reverse` keyword)."""
+        container = self.order_by(key, reverse=reverse)
+        return Enumerable(GroupedEnumerable(group, key=key) for key, group in groupby(container, key=key))
+
+    # endregion
+
     # region set-operations
 
     def distinct(self) -> "Enumerable[T]":
@@ -337,61 +414,11 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
                 reducer = cast(Callable[[U, T], U], reducer)
                 return reduce(reducer, self, initial)
 
-    def group(
-        self: "Enumerable[ComparableT]",
-        *,
-        reverse: bool = False,
-    ) -> "Enumerable[GroupedEnumerable[ComparableT, ComparableT]]":
-        container = self.order(reverse=reverse)
-        return Enumerable(GroupedEnumerable(group, key=key) for key, group in groupby(container))
-
-    def group_by(
-        self,
-        key: Callable[[T], "ComparableT"],
-        *,
-        reverse: bool = False,
-    ) -> "Enumerable[GroupedEnumerable[ComparableT, T]]":
-        container = self.order_by(key, reverse=reverse)
-        return Enumerable(GroupedEnumerable(group, key=key) for key, group in groupby(container, key=key))
-
     def order(self: "Enumerable[ComparableT]", *, reverse: bool = False) -> "Enumerable[ComparableT]":
         return Enumerable(sorted(self, reverse=reverse))
 
     def order_by(self, key: Callable[[T], "ComparableT"], *, reverse: bool = False) -> "OrderedEnumerable[T]":
         return OrderedEnumerable(self._iterable, key, reverse=reverse)
-
-    def prepend(self, *elements: T) -> "Enumerable[T]":
-        return Enumerable(chain(elements, self))
-
-    def append(self, *elements: T) -> "Enumerable[T]":
-        return Enumerable(chain(self, elements))
-
-    def concat(self, *iterables: Iterable[T]) -> "Enumerable[T]":
-        return Enumerable(chain(self, chain.from_iterable(iterables)))
-
-    def zip(self, iterable: Iterable[U], *, strict: bool = False) -> "Enumerable[tuple[T, U]]":
-        return Enumerable(zip(self, iterable, strict=strict))
-
-    def chunk(self, size: int) -> "Enumerable[Enumerable[T]]":
-        return Enumerable(Enumerable(x) for x in batched(self, size))
-
-    def window(self, size: int, *, padding: T | None = None) -> "Enumerable[Enumerable[T]]":
-        if not size & 1 or size < 0:
-            error = f"Size must be and uneven integer greater than zero, {size=}."
-            raise ValueError(error)
-
-        window = deque[T](maxlen=size)
-
-        if padding is None:
-            return Enumerable(Enumerable(window) for x in self if not window.append(x))
-
-        width = size // 2
-        dummies = [padding] * width
-        window.extend(dummies)
-        window.extend(self.take(width))
-        enumerable = self if isinstance(self._iterable, Iterator) else self.skip(width)
-        enumerable = enumerable.concat(dummies)
-        return Enumerable(Enumerable(window) for x in enumerable if not window.append(x))
 
     def equals(self, iterable: Iterable[U], *, preserve: bool = False) -> bool:
         try:
