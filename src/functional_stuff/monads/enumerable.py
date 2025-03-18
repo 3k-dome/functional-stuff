@@ -85,6 +85,10 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
         """Returns a new enumerable containing all source elements that satisfy `predicate`."""
         return Enumerable(x for x in self if predicate(x))
 
+    def of_type(self, dtype: type[U]) -> "Enumerable[U]":
+        """Returns a new enumerable containing only source elements of type `dtype`."""
+        return self.where(lambda x: isinstance(x, dtype)).cast(dtype)
+
     def take(self, count: int) -> "Enumerable[T]":
         """Returns a new enumerable containing the first `count` source elements."""
         return Enumerable(islice(self, count))
@@ -430,9 +434,6 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
 
     def cast(self, dtype: type[U]) -> "Enumerable[U]":  # noqa: ARG002
         return cast("Enumerable[U]", self)
-
-    def of_type(self, dtype: type[U]) -> "Enumerable[U]":
-        return self.where(lambda x: isinstance(x, dtype)).cast(dtype)
 
     def to_deque(self) -> deque[T]:
         return deque(self)
