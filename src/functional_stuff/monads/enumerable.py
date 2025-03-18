@@ -137,6 +137,31 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
 
     # endregion
 
+    # region ordering
+
+    def order(self: "Enumerable[ComparableT]", *, reverse: bool = False) -> "Enumerable[ComparableT]":
+        """Return a new enumerable of sorted source elements."""
+        return Enumerable(sorted(self, reverse=reverse))
+
+    def order_by(self, key: Callable[[T], "ComparableT"], *, reverse: bool = False) -> "OrderedEnumerable[T]":
+        """Return a new `OrderedEnumerable` of source elements sorted by `key`."""
+        return OrderedEnumerable(self._iterable, key, reverse=reverse)
+
+    def reverse(self) -> "Enumerable[T]":
+        """Returns a new enumerable of source elements in reversed order.
+
+        If the source enumerable is a reversible type `reversed` will be used and therefore
+        the containers `__reversed__` method, otherwise the enumerable is first materialized and then reveres.
+        """
+        match self._iterable:
+            case Reversible() as reversible:
+                return Enumerable(reversed(reversible))
+            case _:
+                container = self.to_tuple()
+                return Enumerable(reversed(container))
+
+    # endregion
+
     # region sequencing
 
     def prepend(self, *elements: T) -> "Enumerable[T]":
@@ -287,14 +312,6 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
             case "is":
                 return self.any(lambda x: operator.is_(x, element), preserve=preserve)
 
-    def reverse(self) -> "Enumerable[T]":
-        match self._iterable:
-            case Reversible() as reversible:
-                return Enumerable(reversed(reversible))
-            case _:
-                container = self.to_tuple()
-                return Enumerable(reversed(container))
-
     def first(self, predicate: Predicate[T] | None = None) -> T:
         match predicate:
             case Callable():
@@ -417,12 +434,6 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
             case _:
                 reducer = cast(Callable[[U, T], U], reducer)
                 return reduce(reducer, self, initial)
-
-    def order(self: "Enumerable[ComparableT]", *, reverse: bool = False) -> "Enumerable[ComparableT]":
-        return Enumerable(sorted(self, reverse=reverse))
-
-    def order_by(self, key: Callable[[T], "ComparableT"], *, reverse: bool = False) -> "OrderedEnumerable[T]":
-        return OrderedEnumerable(self._iterable, key, reverse=reverse)
 
     def equals(self, iterable: Iterable[U], *, preserve: bool = False) -> bool:
         try:
