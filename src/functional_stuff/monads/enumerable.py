@@ -281,38 +281,10 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
 
     # endregion
 
-    @overload
-    def any(self, predicate: None, *, preserve: bool = False) -> bool: ...
-
-    @overload
-    def any(self, predicate: None = None, *, preserve: bool = False) -> bool: ...
-
-    @overload
-    def any(self, predicate: Predicate[T], *, preserve: bool = False) -> bool: ...
-
-    @preserve
-    def any(self, predicate: Predicate[T] | None = None, *, preserve: bool = False) -> bool:  # noqa: ARG002
-        match predicate:
-            case Callable():
-                return any(predicate(x) for x in self)
-            case _:
-                for _ in self:
-                    return True
-                return False
-
-    @preserve
-    def all(self, predicate: Predicate[T], *, preserve: bool = False) -> bool:  # noqa: ARG002
-        return all(predicate(x) for x in self)
-
-    @preserve
-    def contains(self, element: T, *, comparer: Literal["eq", "is"] = "eq", preserve: bool = False) -> bool:
-        match comparer:
-            case "eq":
-                return self.any(lambda x: operator.eq(x, element), preserve=preserve)
-            case "is":
-                return self.any(lambda x: operator.is_(x, element), preserve=preserve)
+    # region element-access
 
     def first(self, predicate: Predicate[T] | None = None) -> T:
+        """Returns the first source element (satisfying `predicate` if given)."""
         match predicate:
             case Callable():
                 return next(x for x in self if predicate(x))
@@ -320,6 +292,7 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
                 return next(x for x in self)
 
     def first_or_default(self, default: T, predicate: Predicate[T] | None = None) -> T:
+        """Returns the first source element (satisfying `predicate` if given) or `default`."""
         match predicate:
             case Callable():
                 return next((x for x in self if predicate(x)), default)
@@ -327,6 +300,7 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
                 return next(x for x in self)
 
     def element_at(self, index: int) -> T:
+        """Returns the element at position `index`."""
         with contextlib.suppress(StopIteration, IndexError):
             match self._iterable:
                 case Sequence():
@@ -337,12 +311,14 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
         raise IndexError(error)
 
     def element_at_or_default(self, index: int, default: T) -> T:
+        """Returns the element at position `index` or `default`."""
         try:
             return self.element_at(index)
         except IndexError:
             return default
 
     def single(self, predicate: Predicate[T] | None) -> T:
+        """Returns the single source element (satisfying `predicate` if given)."""
         container = self.where(predicate) if isinstance(predicate, Callable) else self
         match (container.count(preserve=True), predicate):
             case (1, _):
@@ -358,35 +334,94 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
         raise ValueError(error)
 
     def single_or_default(self, default: T, predicate: Predicate[T]) -> T:
+        """Returns the single source element (satisfying `predicate` if given) or `default`."""
         try:
             return self.single(predicate)
         except ValueError:
             return default
 
     def last(self, predicate: Predicate[T] | None = None) -> T:
+        """Returns the last source element (satisfying `predicate` if given)."""
         return self.reverse().first(predicate)
 
     def last_or_default(self, default: T, predicate: Predicate[T] | None = None) -> T:
+        """Returns the last source element (satisfying `predicate` if given) or `default`."""
         return self.reverse().first_or_default(default, predicate)
+
+    # endregion
+
+    # region quantification
+
+    @overload
+    def any(self, predicate: None, *, preserve: bool = False) -> bool: ...
+
+    @overload
+    def any(self, predicate: None = None, *, preserve: bool = False) -> bool: ...
+
+    @overload
+    def any(self, predicate: Predicate[T], *, preserve: bool = False) -> bool: ...
+
+    @preserve
+    def any(self, predicate: Predicate[T] | None = None, *, preserve: bool = False) -> bool:  # noqa: ARG002
+        """Returns `True` if tat least one element or at least one element satisfying `predicate` is contained."""
+        match predicate:
+            case Callable():
+                return any(predicate(x) for x in self)
+            case _:
+                for _ in self:
+                    return True
+                return False
+
+    @preserve
+    def all(self, predicate: Predicate[T], *, preserve: bool = False) -> bool:  # noqa: ARG002
+        """Returns `True` if all elements satisfy `predicate`."""
+        return all(predicate(x) for x in self)
+
+    def contains(self, element: T, *, comparer: Literal["eq", "is"] = "eq", preserve: bool = False) -> bool:
+        """Returns `True` if the enumerable contains at least one element matching `element`.
+
+        Use `comparer` to decide whether elements should be checked for equality or identity.
+        """
+        match comparer:
+            case "eq":
+                return self.any(lambda x: operator.eq(x, element), preserve=preserve)
+            case "is":
+                return self.any(lambda x: operator.is_(x, element), preserve=preserve)
+
+    def equals(self, iterable: Iterable[U], *, preserve: bool = False) -> bool:
+        """Returns `True` if the enumerable iterates over the same elements as `iterable`."""
+        try:
+            return self.zip(iterable, strict=True).all(lambda x: x[0] == x[1], preserve=preserve)
+        except ValueError:
+            return False
+
+    # endregion
+
+    # region aggregation
 
     @preserve
     def min(self: "Enumerable[ComparableT]", *, preserve: bool = False) -> "ComparableT":  # noqa: ARG002
+        """Returns the smallest source element."""
         return min(self)
 
     @preserve
     def min_by(self, key: Callable[[T], "ComparableT"], *, preserve: bool = False) -> T:  # noqa: ARG002
+        """Returns the smallest source element determined by `key`."""
         return min(self, key=key)
 
     @preserve
     def max(self: "Enumerable[ComparableT]", *, preserve: bool = False) -> "ComparableT":  # noqa: ARG002
+        """Returns the biggest source element."""
         return max(self)
 
     @preserve
     def max_by(self, key: Callable[[T], "ComparableT"], *, preserve: bool = False) -> T:  # noqa: ARG002
+        """Returns the biggest source element determined by `key`."""
         return max(self, key=key)
 
     @preserve
     def count(self, *, preserve: bool = False) -> int:  # noqa: ARG002
+        """Returns the number of elements within the enumerable."""
         match self._iterable:
             case Collection():
                 return len(self._iterable)
@@ -401,19 +436,23 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
 
     @preserve
     def sum(self: "Enumerable[int] | Enumerable[int | float]", *, preserve: bool = False) -> int | float:  # noqa: ARG002
+        """Returns the sum of all source elements."""
         return sum(self)
 
     @preserve
     def sum_by(self, key: Callable[[T], int] | Callable[[T], int | float], *, preserve: bool = False) -> int | float:  # noqa: ARG002
+        """Returns the sum of all source element by `key`."""
         return sum(key(x) for x in self)
 
     @preserve
     def average(self: "Enumerable[int | float]", *, preserve: bool = False) -> float:  # noqa: ARG002
+        """Returns the average of all source elements."""
         length = 0
         return Enumerable(x for count, x in enumerate(self, 1) if (length := count)).sum() / length
 
     @preserve
     def average_by(self, key: Callable[[T], int | float], *, preserve: bool = False) -> float:  # noqa: ARG002
+        """Returns the average of all source element by `key`."""
         length = 0
         return Enumerable(key(x) for count, x in enumerate(self, 1) if (length := count)).sum() / length
 
@@ -427,6 +466,7 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
     def aggregate(self, reducer: Callable[[U, T], U], initial: U) -> U: ...
 
     def aggregate(self, reducer: Callable[[U, T], U] | Callable[[T, T], T], initial: U | None = None) -> U | T:
+        """Returns the aggregated/reduced value by applying `reducer`."""
         match initial:
             case None:
                 reducer = cast(Callable[[T, T], T], reducer)
@@ -435,27 +475,24 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
                 reducer = cast(Callable[[U, T], U], reducer)
                 return reduce(reducer, self, initial)
 
-    def equals(self, iterable: Iterable[U], *, preserve: bool = False) -> bool:
-        try:
-            return self.zip(iterable, strict=True).all(lambda x: x[0] == x[1], preserve=preserve)
-        except ValueError:
-            return False
+    # end region
 
     # region type-conversion
 
-    def cast(self, dtype: type[U]) -> "Enumerable[U]":  # noqa: ARG002
-        return cast("Enumerable[U]", self)
-
     def to_deque(self) -> deque[T]:
+        """Returns a new `deque` of source elements by materializing the enumerable."""
         return deque(self)
 
     def to_list(self) -> list[T]:
+        """Returns a new `list` of source elements by materializing the enumerable."""
         return list(self)
 
     def to_set(self) -> set[T]:
+        """Returns a new `set` of source elements by materializing the enumerable."""
         return set(self)
 
     def to_tuple(self) -> tuple[T, ...]:
+        """Returns a new `tuple` of source elements by materializing the enumerable."""
         return tuple(self)
 
     @overload
@@ -468,6 +505,7 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
     def to_dict(self, key: Callable[[T], K], func: Callable[[T], U]) -> dict[K, U]: ...
 
     def to_dict(self, key: Callable[[T], K], func: Callable[[T], U] | None = None) -> dict[K, U] | dict[K, T]:
+        """Returns a new `dict` of source elements by materializing the enumerable."""
         match func:
             case Callable():
                 return {key(x): func(x) for x in self}
@@ -476,12 +514,28 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
 
     # endregion
 
+    # region utility
+
+    def cast(self, dtype: type[U]) -> "Enumerable[U]":  # noqa: ARG002
+        """See `typing.cast`."""
+        return cast("Enumerable[U]", self)
+
     def freeze(self) -> "Enumerable[T]":
+        """Returns a new enumerable by materializing (i.e. freezing) the source enumerable.
+
+        Materialize the source enumerable as `tuple` therefore allowing multiple iterations
+        over the same iterable. This might be useful as the source enumerable may be an `Iterator`
+        which would consume its elements upon iteration.
+
+        Only `Iterator`s are materializeds.
+        """
         match self._iterable:
             case Iterator():
                 return Enumerable(self.to_tuple())
             case _:
                 return self
+
+    # endregion
 
 
 class OrderedEnumerable(Enumerable[T]):
