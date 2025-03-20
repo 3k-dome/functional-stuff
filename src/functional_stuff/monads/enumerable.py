@@ -249,6 +249,145 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
 
     # endregion
 
+    # region joins
+
+    @overload
+    def inner_join(
+        self,
+        iterable: Iterable[U],
+        left_key: Callable[[T], "ComparableT"],
+        right_key: Callable[[U], "ComparableT"],
+    ) -> "Enumerable[tuple[T, U]]": ...
+
+    @overload
+    def inner_join(
+        self,
+        iterable: Iterable[U],
+        left_key: Callable[[T], "ComparableT"],
+        right_key: Callable[[U], "ComparableT"],
+        combine: None = None,
+    ) -> "Enumerable[tuple[T, U]]": ...
+
+    @overload
+    def inner_join(
+        self,
+        iterable: Iterable[U],
+        left_key: Callable[[T], "ComparableT"],
+        right_key: Callable[[U], "ComparableT"],
+        combine: Callable[[T, U], K],
+    ) -> "Enumerable[K]": ...
+
+    def inner_join(
+        self,
+        iterable: Iterable[U],
+        left_key: Callable[[T], "ComparableT"],
+        right_key: Callable[[U], "ComparableT"],
+        combine: Callable[[T, U], K] | None = None,
+    ) -> "Enumerable[tuple[T, U]] | Enumerable[K]":
+        """Returns a new enumerable over the result of an inner join against `iterable` on (left and right) `key`."""
+        right_side = Enumerable(iterable).group_by(right_key).to_dict(lambda x: x.key, lambda x: x.to_tuple())
+        join = (
+            self.select(lambda left: (left, left_key(left)))
+            .where(lambda left: left[1] in right_side)
+            .select_many(lambda left: ((left[0], right) for right in right_side[left[1]]))
+        )
+        match combine:
+            case Callable():
+                return join.select(lambda x: combine(*x))
+            case _:
+                return join
+
+    @overload
+    def left_join(
+        self,
+        iterable: Iterable[U],
+        left_key: Callable[[T], "ComparableT"],
+        right_key: Callable[[U], "ComparableT"],
+    ) -> "Enumerable[tuple[T, U | None]]": ...
+
+    @overload
+    def left_join(
+        self,
+        iterable: Iterable[U],
+        left_key: Callable[[T], "ComparableT"],
+        right_key: Callable[[U], "ComparableT"],
+        combine: None = None,
+    ) -> "Enumerable[tuple[T, U | None]]": ...
+
+    @overload
+    def left_join(
+        self,
+        iterable: Iterable[U],
+        left_key: Callable[[T], "ComparableT"],
+        right_key: Callable[[U], "ComparableT"],
+        combine: Callable[[T, U | None], K],
+    ) -> "Enumerable[K]": ...
+
+    def left_join(
+        self,
+        iterable: Iterable[U],
+        left_key: Callable[[T], "ComparableT"],
+        right_key: Callable[[U], "ComparableT"],
+        combine: Callable[[T, U | None], K] | None = None,
+    ) -> "Enumerable[tuple[T, U | None]] | Enumerable[K]":
+        """Returns a new enumerable over the result of an left join against `iterable` on (left and right) `key`."""
+        right_side = Enumerable(iterable).group_by(right_key).to_dict(lambda x: x.key, lambda x: x.to_tuple())
+        join = (
+            self.select(lambda left: (left, left_key(left)))
+            # same as inner_join but we don not care if the right side exists and default to (None,)
+            .select_many(lambda left: ((left[0], right) for right in right_side.get(left[1], (None,))))
+        )
+        match combine:
+            case Callable():
+                return join.select(lambda x: combine(*x))
+            case _:
+                return join
+
+    @overload
+    def right_join(
+        self,
+        iterable: Iterable[U],
+        left_key: Callable[[T], "ComparableT"],
+        right_key: Callable[[U], "ComparableT"],
+    ) -> "Enumerable[tuple[T | None, U ]]": ...
+
+    @overload
+    def right_join(
+        self,
+        iterable: Iterable[U],
+        left_key: Callable[[T], "ComparableT"],
+        right_key: Callable[[U], "ComparableT"],
+        combine: None = None,
+    ) -> "Enumerable[tuple[T | None, U ]]": ...
+
+    @overload
+    def right_join(
+        self,
+        iterable: Iterable[U],
+        left_key: Callable[[T], "ComparableT"],
+        right_key: Callable[[U], "ComparableT"],
+        combine: Callable[[T | None, U], K],
+    ) -> "Enumerable[K]": ...
+
+    def right_join(
+        self,
+        iterable: Iterable[U],
+        left_key: Callable[[T], "ComparableT"],
+        right_key: Callable[[U], "ComparableT"],
+        combine: Callable[[T | None, U], K] | None = None,
+    ) -> "Enumerable[tuple[T | None, U ]] | Enumerable[K]":
+        """Returns a new enumerable over the result of an right join against `iterable` on (left and right) `key`.
+
+        Internally performs an `left_join` with mirrored parameters.
+        """
+        match combine:
+            case Callable():
+                return Enumerable(iterable).left_join(self, right_key, left_key, lambda x, y: combine(y, x))
+            case _:
+                return Enumerable(iterable).left_join(self, right_key, left_key).select(lambda x: (x[1], x[0]))
+
+    # endregion
+
     # region set-operations
 
     def distinct(self) -> "Enumerable[T]":
