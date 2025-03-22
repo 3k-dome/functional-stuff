@@ -7,7 +7,7 @@ import warnings
 from collections import deque
 from collections.abc import Callable, Collection, Iterable, Iterator, Reversible, Sequence
 from functools import reduce, wraps
-from itertools import batched, chain, groupby, islice, takewhile, tee
+from itertools import batched, chain, groupby, islice, product, takewhile, tee
 from typing import TYPE_CHECKING, Any, Concatenate, Generic, Literal, ParamSpec, Self, TypeVar, cast, overload
 
 from functional_stuff.monads.base import AbstractMonad, T, U
@@ -385,6 +385,92 @@ class Enumerable(Iterable[T], AbstractMonad[T]):
                 return Enumerable(iterable).left_join(self, right_key, left_key, lambda x, y: combine(y, x))
             case _:
                 return Enumerable(iterable).left_join(self, right_key, left_key).select(lambda x: (x[1], x[0]))
+
+    @overload
+    def full_join(
+        self,
+        iterable: Iterable[U],
+        left_key: Callable[[T], "ComparableT"],
+        right_key: Callable[[U], "ComparableT"],
+    ) -> "Enumerable[tuple[T | None, U | None]]": ...
+
+    @overload
+    def full_join(
+        self,
+        iterable: Iterable[U],
+        left_key: Callable[[T], "ComparableT"],
+        right_key: Callable[[U], "ComparableT"],
+        combine: None = None,
+    ) -> "Enumerable[tuple[T | None, U | None]]": ...
+
+    @overload
+    def full_join(
+        self,
+        iterable: Iterable[U],
+        left_key: Callable[[T], "ComparableT"],
+        right_key: Callable[[U], "ComparableT"],
+        combine: Callable[[T | None, U | None], K],
+    ) -> "Enumerable[K]": ...
+
+    def full_join(
+        self,
+        iterable: Iterable[U],
+        left_key: Callable[[T], "ComparableT"],
+        right_key: Callable[[U], "ComparableT"],
+        combine: Callable[[T | None, U | None], K] | None = None,
+    ) -> "Enumerable[tuple[T | None, U | None]] | Enumerable[K]":
+        """Returns a new enumerable over the result of a full join against `iterable` on (left and right) `key`."""
+
+        # typing could be improved here since it is "tuple[T, U | None] | tuple[T | None, U]", but this works for now
+
+        left_side = self.group_by(left_key).to_dict(lambda x: x.key, lambda x: x.to_tuple())
+        right_side = Enumerable(iterable).group_by(right_key).to_dict(lambda x: x.key, lambda x: x.to_tuple())
+        keys = left_side.keys() | right_side.keys()
+
+        def generator() -> Iterator[tuple[T | None, U | None]]:
+            for key in keys:
+                left = left_side.get(key, (None,))
+                right = right_side.get(key, (None,))
+                yield from ((x, y) for y in right for x in left)
+
+        match combine:
+            case Callable():
+                return Enumerable(generator()).select(lambda x: combine(x[0], x[1]))
+            case _:
+                return Enumerable(generator())
+
+    @overload
+    def cross_join(
+        self,
+        iterable: Iterable[U],
+    ) -> "Enumerable[tuple[T, U]]": ...
+
+    @overload
+    def cross_join(
+        self,
+        iterable: Iterable[U],
+        combine: None = None,
+    ) -> "Enumerable[tuple[T, U]]": ...
+
+    @overload
+    def cross_join(
+        self,
+        iterable: Iterable[U],
+        combine: Callable[[T, U], K],
+    ) -> "Enumerable[K]": ...
+
+    def cross_join(
+        self,
+        iterable: Iterable[U],
+        combine: Callable[[T, U], K] | None = None,
+    ) -> "Enumerable[tuple[T, U]] | Enumerable[K]":
+        """Returns a new enumerable over the result of a cross join against `iterable`."""
+        join = Enumerable(product(self, iterable))
+        match combine:
+            case Callable():
+                return join.select(lambda x: combine(x[0], x[1]))
+            case _:
+                return join
 
     # endregion
 
